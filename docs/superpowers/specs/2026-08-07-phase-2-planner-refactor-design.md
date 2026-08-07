@@ -347,9 +347,19 @@ Two, both intended:
 1. **Bare `openrouter-launch models` becomes tools-only.** `config.defaults()`
    sets `ToolsOnly: true` ("a coding agent without tool calling is unusable"),
    and `models` now consults it. `--tools=false` restores the full listing.
-   `TestModelsCommandListsAll` asserts the old behavior and will fail; it becomes
-   a `--tools=false` test, joined by one pinning the new default and one covering
-   the explicit override.
+
+   Three existing tests assert the old behavior and will fail, all for the same
+   reason: `openai/o1-mini` is the only fixture model with
+   `SupportsTools: false`, so it now vanishes from any listing that does not
+   explicitly opt out. `TestModelsCommandListsAll`,
+   `TestModelsCommandProviderFilter`, and `TestModelsCommandMaxPriceFilter` each
+   gain `--tools=false` so they keep testing their own dimension rather than the
+   new default. Two new tests cover the default itself and the explicit
+   override.
+
+   `TestModelsCommandMinContextFilter` asserts o1-mini is *absent* and so keeps
+   passing — but for a new reason. It gets `--tools=false` too, so it fails if
+   the min-context guard is broken rather than passing on the tools filter.
 2. **A `Launcher.Command` build error no longer follows a compatibility prompt**
    — see the documented deviation above.
 
