@@ -210,6 +210,35 @@ func TestLaunchRequiresModelFlag(t *testing.T) {
 	}
 }
 
+// TestCheckAgentSupported exercises checkAgentSupported directly with a
+// synthetic spec, since the real registry only has claude, which is always
+// Status.Supported: this branch is otherwise unreachable from both
+// resolveAndRun and profile add.
+func TestCheckAgentSupported(t *testing.T) {
+	unsupported := &agent.Spec{
+		Name:   "copilot",
+		Status: agent.Status{Supported: false, Reason: "talks to GitHub's own backend"},
+	}
+	err := checkAgentSupported(unsupported)
+	if err == nil {
+		t.Fatal("expected an error for an unsupported agent")
+	}
+	if !strings.Contains(err.Error(), "copilot") {
+		t.Errorf("error should name the agent, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "talks to GitHub's own backend") {
+		t.Errorf("error should include the unsupported reason, got: %v", err)
+	}
+
+	supported := &agent.Spec{
+		Name:   "claude",
+		Status: agent.Status{Supported: true},
+	}
+	if err := checkAgentSupported(supported); err != nil {
+		t.Errorf("expected nil for a supported agent, got: %v", err)
+	}
+}
+
 // TestResolveAndRunUnsupportedAgent and TestResolveAndRunUnsupportedPlatform
 // call resolveAndRun directly with a synthetic spec, since the real registry
 // only has claude, which is always Status.Supported and never implements

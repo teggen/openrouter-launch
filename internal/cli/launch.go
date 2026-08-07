@@ -40,10 +40,18 @@ func newLaunchCmds(global *globalFlags) []*cobra.Command {
 	return cmds
 }
 
-// resolveAndRun validates the request and hands off to the agent.
-func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraArgs []string, global *globalFlags) error {
+// checkAgentSupported reports why an agent cannot be pointed at OpenRouter.
+func checkAgentSupported(spec *agent.Spec) error {
 	if !spec.Status.Supported {
 		return fmt.Errorf("%s cannot be pointed at OpenRouter: %s", spec.Name, spec.Status.Reason)
+	}
+	return nil
+}
+
+// resolveAndRun validates the request and hands off to the agent.
+func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraArgs []string, global *globalFlags) error {
+	if err := checkAgentSupported(spec); err != nil {
+		return err
 	}
 
 	if platform, ok := spec.Launcher.(agent.PlatformSupported); ok {

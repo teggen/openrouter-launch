@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -43,14 +44,7 @@ func newProfileListCmd() *cobra.Command {
 			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
 			fmt.Fprintln(w, "NAME\tAGENT\tMODEL\tARGS")
 			for _, p := range cfg.Profiles {
-				args := ""
-				for i, a := range p.Args {
-					if i > 0 {
-						args += " "
-					}
-					args += a
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.Agent, p.Model, args)
+				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.Agent, p.Model, strings.Join(p.Args, " "))
 			}
 			return w.Flush()
 		},
@@ -70,8 +64,8 @@ func newProfileAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !spec.Status.Supported {
-				return fmt.Errorf("%s cannot be pointed at OpenRouter: %s", spec.Name, spec.Status.Reason)
+			if err := checkAgentSupported(spec); err != nil {
+				return err
 			}
 
 			cfg, err := config.Load()

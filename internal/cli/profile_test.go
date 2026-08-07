@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
 )
 
@@ -32,8 +33,12 @@ func TestProfileAddRejectsUnknownAgent(t *testing.T) {
 	root.SetErr(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "add", "--name", "x", "--agent", "nope", "--model", "a/b"})
 
-	if err := root.Execute(); err == nil {
+	err := root.Execute()
+	if err == nil {
 		t.Fatal("expected an error for an unknown agent")
+	}
+	if !errors.Is(err, agent.ErrUnknownAgent) {
+		t.Errorf("expected %v, got: %v", agent.ErrUnknownAgent, err)
 	}
 }
 
@@ -49,8 +54,12 @@ func TestProfileAddRejectsDuplicate(t *testing.T) {
 	root.SetArgs([]string{"profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6"})
 
-	if err := root.Execute(); err == nil {
+	err := root.Execute()
+	if err == nil {
 		t.Fatal("expected an error for a duplicate profile name")
+	}
+	if !errors.Is(err, config.ErrProfileExists) {
+		t.Errorf("expected %v, got: %v", config.ErrProfileExists, err)
 	}
 }
 
