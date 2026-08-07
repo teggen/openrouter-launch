@@ -2,8 +2,11 @@ package cli
 
 import (
 	"bytes"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/teggen/openrouter-launch/internal/agent"
 )
 
 func runCmd(t *testing.T, args ...string) string {
@@ -19,6 +22,22 @@ func runCmd(t *testing.T, args ...string) string {
 	return out.String()
 }
 
+func claudeStatusField(t *testing.T, out string) string {
+	t.Helper()
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "claude") {
+			continue
+		}
+		fields := regexp.MustCompile(`\s{2,}`).Split(strings.TrimSpace(line), -1)
+		if len(fields) < 3 {
+			t.Fatalf("unexpected row shape: %q", line)
+		}
+		return fields[2]
+	}
+	t.Fatalf("no claude row in output:\n%s", out)
+	return ""
+}
+
 func TestAgentsCommandListsClaude(t *testing.T) {
 	got := runCmd(t, "agents")
 	if !strings.Contains(got, "claude") {
@@ -29,10 +48,38 @@ func TestAgentsCommandListsClaude(t *testing.T) {
 	}
 }
 
-func TestAgentsCommandShowsInstallState(t *testing.T) {
+func TestAgentsCommandShowsInstalledWhenBinaryFound(t *testing.T) {
+	spec, err := agent.Lookup("claude")
+	if err != nil {
+		t.Fatalf("lookup claude: %v", err)
+	}
+	claude := spec.Launcher.(*agent.Claude)
+	prev := claude.LookPath
+	claude.LookPath = func(string) (string, error) { return "/usr/local/bin/claude", nil }
+	t.Cleanup(func() { claude.LookPath = prev })
+
 	got := runCmd(t, "agents")
-	if !strings.Contains(got, "installed") && !strings.Contains(got, "not installed") {
-		t.Errorf("output missing install state:\n%s", got)
+	status := claudeStatusField(t, got)
+	if status != "installed" {
+		t.Errorf("expected status %q, got %q", "installed", status)
+	}
+}
+
+func TestAgentsCommandShowsNotInstalledWhenBinaryNotFound(t *testing.T) {
+	spec, err := agent.Lookup("claude")
+	if err != nil {
+		t.Fatalf("lookup claude: %v", err)
+	}
+	claude := spec.Launcher.(*agent.Claude)
+	prev := claude.LookPath
+	claude.LookPath = func(string) (string, error) { return "", agent.ErrUnknownAgent }
+	t.Cleanup(func() { claude.LookPath = prev })
+	t.Setenv("HOME", t.TempDir())
+
+	got := runCmd(t, "agents")
+	status := claudeStatusField(t, got)
+	if status != "not installed" {
+		t.Errorf("expected status %q, got %q", "not installed", status)
 	}
 }
 
@@ -42,5 +89,12 @@ func TestRootHasPersistentFlags(t *testing.T) {
 		if root.PersistentFlags().Lookup(name) == nil {
 			t.Errorf("missing persistent flag --%s", name)
 		}
+	}
+}
+
+func TestYesFlagHasShorthand(t *testing.T) {
+	root := NewRootCmd()
+	if root.PersistentFlags().ShorthandLookup("y") == nil {
+		t.Errorf("missing shorthand -y for --yes flag")
 	}
 }
