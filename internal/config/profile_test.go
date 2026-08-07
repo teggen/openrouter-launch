@@ -115,15 +115,53 @@ func TestRenameProfileRejectsExistingTarget(t *testing.T) {
 
 func TestRemoveProfilePreservesOrder(t *testing.T) {
 	cfg := defaults()
-	for _, name := range []string{"a", "b", "c"} {
+	for _, name := range []string{"c", "a", "b"} {
 		if err := cfg.AddProfile(Profile{Name: name, Agent: "claude", Model: "x/y"}); err != nil {
 			t.Fatalf("AddProfile %s: %v", name, err)
 		}
 	}
-	if err := cfg.RemoveProfile("b"); err != nil {
+	if err := cfg.RemoveProfile("a"); err != nil {
 		t.Fatalf("RemoveProfile: %v", err)
 	}
-	if len(cfg.Profiles) != 2 || cfg.Profiles[0].Name != "a" || cfg.Profiles[1].Name != "c" {
+	if len(cfg.Profiles) != 2 || cfg.Profiles[0].Name != "c" || cfg.Profiles[1].Name != "b" {
 		t.Errorf("order not preserved: %+v", cfg.Profiles)
+	}
+}
+
+func TestAddProfileRejectsDuplicateCaseInsensitive(t *testing.T) {
+	cfg := defaults()
+	if err := cfg.AddProfile(Profile{Name: "opus-cc", Agent: "claude", Model: "anthropic/claude-opus-4.6"}); err != nil {
+		t.Fatalf("first AddProfile: %v", err)
+	}
+	err := cfg.AddProfile(Profile{Name: "OPUS-CC", Agent: "claude", Model: "anthropic/claude-opus-4.6"})
+	if !errors.Is(err, ErrProfileExists) {
+		t.Errorf("got %v, want ErrProfileExists", err)
+	}
+}
+
+func TestRenameProfileAllowsSelfWithCaseChange(t *testing.T) {
+	cfg := defaults()
+	if err := cfg.AddProfile(sampleProfile()); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	if err := cfg.RenameProfile("opus-cc", "OPUS-CC"); err != nil {
+		t.Fatalf("RenameProfile: %v", err)
+	}
+	got, ok := cfg.Profile("OPUS-CC")
+	if !ok {
+		t.Fatal("new name does not resolve")
+	}
+	if got.Name != "OPUS-CC" {
+		t.Errorf("stored name = %q, want OPUS-CC", got.Name)
+	}
+}
+
+func TestAddProfileTrimsWhitespace(t *testing.T) {
+	cfg := defaults()
+	if err := cfg.AddProfile(Profile{Name: "  padded  ", Agent: "claude", Model: "a/b"}); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	if _, ok := cfg.Profile("padded"); !ok {
+		t.Error("trimmed profile not found")
 	}
 }
