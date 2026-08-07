@@ -60,6 +60,47 @@ func TestIsFree(t *testing.T) {
 	}
 }
 
+func TestDecodeModelsUnknownPricingIsNotFree(t *testing.T) {
+	data := []byte(`{"data":[{"id":"acme/mystery","name":"Acme: Mystery","context_length":1000,"pricing":{"prompt":"n/a","completion":"0"},"supported_parameters":["tools"]}]}`)
+
+	models, err := DecodeModels(data)
+	if err != nil {
+		t.Fatalf("DecodeModels: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("got %d models, want 1", len(models))
+	}
+	if !models[0].PricingUnknown {
+		t.Error("an unparseable price should set PricingUnknown")
+	}
+	if models[0].IsFree() {
+		t.Error("a model with unknown pricing must never report as free")
+	}
+}
+
+func TestDecodeModelsMissingPricingIsUnknown(t *testing.T) {
+	data := []byte(`{"data":[{"id":"acme/bare","name":"Acme: Bare","context_length":1000}]}`)
+
+	models, err := DecodeModels(data)
+	if err != nil {
+		t.Fatalf("DecodeModels: %v", err)
+	}
+	if !models[0].PricingUnknown {
+		t.Error("absent pricing should set PricingUnknown")
+	}
+	if models[0].IsFree() {
+		t.Error("a model with absent pricing must never report as free")
+	}
+}
+
+func TestDecodeModelsWellFormedPricingIsKnown(t *testing.T) {
+	for _, m := range loadFixture(t) {
+		if m.PricingUnknown {
+			t.Errorf("%s: PricingUnknown set for a well-formed price", m.ID)
+		}
+	}
+}
+
 func TestSupportsTools(t *testing.T) {
 	models := loadFixture(t)
 	if !models[1].SupportsTools {
