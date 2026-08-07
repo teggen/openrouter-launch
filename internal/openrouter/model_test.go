@@ -78,6 +78,30 @@ func TestDecodeModelsUnknownPricingIsNotFree(t *testing.T) {
 	}
 }
 
+// TestDecodeModelsMalformedCompletionPriceIsUnknown is the symmetric
+// counterpart to TestDecodeModelsUnknownPricingIsNotFree, which only
+// malforms the prompt price. Without this fixture, a mutation of
+// `PricingUnknown = !promptOK || !completionOK` down to `!promptOK` alone
+// would pass every existing test while a malformed completion price read as
+// known-zero and wrongly passed --free and --max-price filters.
+func TestDecodeModelsMalformedCompletionPriceIsUnknown(t *testing.T) {
+	data := []byte(`{"data":[{"id":"acme/mystery2","name":"Acme: Mystery Two","context_length":1000,"pricing":{"prompt":"0.000015","completion":"n/a"},"supported_parameters":["tools"]}]}`)
+
+	models, err := DecodeModels(data)
+	if err != nil {
+		t.Fatalf("DecodeModels: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("got %d models, want 1", len(models))
+	}
+	if !models[0].PricingUnknown {
+		t.Error("a malformed completion price should set PricingUnknown, even with a valid prompt price")
+	}
+	if models[0].IsFree() {
+		t.Error("a model with unknown completion pricing must never report as free")
+	}
+}
+
 func TestDecodeModelsMissingPricingIsUnknown(t *testing.T) {
 	data := []byte(`{"data":[{"id":"acme/bare","name":"Acme: Bare","context_length":1000}]}`)
 

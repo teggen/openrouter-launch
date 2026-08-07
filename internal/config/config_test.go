@@ -77,6 +77,29 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// TestSaveLoadRoundTripToolsOnlyFalse pins that an explicit false survives
+// the round trip. Load seeds defaults() (which sets ToolsOnly true) and then
+// unmarshals the file over it; this only overrides the default because
+// Filters' fields lack `omitempty`. Adding omitempty later - a
+// natural-looking cleanup - would make an explicit false vanish from the
+// encoded JSON and silently flip back to true on the next Load.
+func TestSaveLoadRoundTripToolsOnlyFalse(t *testing.T) {
+	withTempConfig(t)
+
+	cfg := &Config{Filters: Filters{ToolsOnly: false}}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.Filters.ToolsOnly {
+		t.Error("explicit ToolsOnly=false should round-trip as false, not be overridden by the true default")
+	}
+}
+
 func TestSaveWritesFileMode0600(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("file modes are not meaningful on Windows")

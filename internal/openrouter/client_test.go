@@ -14,10 +14,12 @@ func TestClientModels(t *testing.T) {
 		t.Fatalf("read fixture: %v", err)
 	}
 
-	var gotPath, gotQuery string
+	var gotPath, gotQuery, gotAuth, gotAPIKey string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		gotQuery = r.URL.RawQuery
+		gotAuth = r.Header.Get("Authorization")
+		gotAPIKey = r.Header.Get("X-Api-Key")
 		w.Header().Set("Content-Type", "application/json")
 		w.Write(fixture)
 	}))
@@ -37,6 +39,13 @@ func TestClientModels(t *testing.T) {
 	}
 	if gotQuery != "sort=most-popular" {
 		t.Errorf("query = %q, want sort=most-popular", gotQuery)
+	}
+	// The catalog endpoint is public: no credentials should ever be sent.
+	if gotAuth != "" {
+		t.Errorf("Authorization header = %q, want empty", gotAuth)
+	}
+	if gotAPIKey != "" {
+		t.Errorf("X-Api-Key header = %q, want empty", gotAPIKey)
 	}
 }
 
