@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
@@ -126,6 +127,15 @@ func TestFormatPrice(t *testing.T) {
 	if got := formatPrice(0, true); got != "?" {
 		t.Errorf("formatPrice with unknown pricing = %q, want %q", got, "?")
 	}
+}
+
+func mustLoadConfig(t *testing.T) *config.Config {
+	t.Helper()
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	return cfg
 }
 
 func TestFormatContext(t *testing.T) {
