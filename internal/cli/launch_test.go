@@ -8,6 +8,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 // fakeLauncher is a minimal agent.Launcher for exercising resolveAndRun's
@@ -33,6 +34,20 @@ type fakePlatformLauncher struct {
 
 func (f *fakePlatformLauncher) Supported() error {
 	return errors.New("windows is not supported yet")
+}
+
+// fakeIncompatibleLauncher's CheckModel returns a plain error rather than
+// one wrapping agent.ErrIncompatibleModel, exercising the genuine-failure
+// branch of resolveAndRun's compatibility check. agent.Claude never takes
+// this branch (it returns either nil or an ErrIncompatibleModel-wrapped
+// error), so it is otherwise unreachable from CLI-level tests.
+type fakeIncompatibleLauncher struct {
+	fakeLauncher
+	err error
+}
+
+func (f *fakeIncompatibleLauncher) CheckModel(openrouter.Model) error {
+	return f.err
 }
 
 // captureRun replaces the process handoff so tests observe the command
@@ -172,13 +187,26 @@ func TestLaunchUnknownModelSuggests(t *testing.T) {
 func TestLaunchRequiresModelFlag(t *testing.T) {
 	setupLaunch(t)
 
+	var out bytes.Buffer
 	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root.SetOut(&out)
+	root.SetErr(&out)
 	root.SetArgs([]string{"claude"})
 
-	if err := root.Execute(); err == nil {
+	err := root.Execute()
+	if err == nil {
 		t.Fatal("expected an error when --model is omitted in Phase 1")
+	}
+	// Asserting only that *some* error occurred would also pass if the
+	// modelID=="" guard were deleted: with no model given, an empty query
+	// reaches openrouter.Suggest, whose empty-query branch matches every
+	// model, so FindByID still fails and resolveAndRun still returns a
+	// non-nil (but wrong) "unknown model" error. Pin down the right error.
+	if !strings.Contains(err.Error(), "a model is required") {
+		t.Errorf("error should name the missing --model flag, got: %v", err)
+	}
+	if strings.Contains(err.Error(), "unknown model") {
+		t.Errorf("missing --model should be reported as missing, not as an unknown model: %v", err)
 	}
 }
 
@@ -230,6 +258,34 @@ func TestResolveAndRunUnsupportedPlatform(t *testing.T) {
 	}
 }
 
+func TestResolveAndRunPropagatesGenuineCheckModelError(t *testing.T) {
+	setupLaunch(t)
+	wantErr := errors.New("catalog service unreachable")
+	spec := &agent.Spec{
+		Name: "picky",
+		Launcher: &fakeIncompatibleLauncher{
+			fakeLauncher: fakeLauncher{name: "picky", displayName: "Picky"},
+			err:          wantErr,
+		},
+		Status: agent.Status{Supported: true},
+	}
+
+	var stderr bytes.Buffer
+	root := NewRootCmd()
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&stderr)
+
+	err := resolveAndRun(root, spec, "anthropic/claude-opus-4.6", nil, &globalFlags{})
+	if !errors.Is(err, wantErr) {
+		t.Fatalf("expected the genuine CheckModel error to propagate unchanged, got: %v", err)
+	}
+	// A genuine (non-ErrIncompatibleModel) error must be a hard failure: no
+	// warning, no confirmation prompt.
+	if strings.Contains(stderr.String(), "warning:") {
+		t.Errorf("a genuine CheckModel error should not print a warning, stderr = %q", stderr.String())
+	}
+}
+
 func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 	got := setupLaunch(t)
 
@@ -258,9 +314,10 @@ func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
 	got := setupLaunch(t)
 
+	var stderr bytes.Buffer
 	root := NewRootCmd()
 	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root.SetErr(&stderr)
 	root.SetIn(strings.NewReader("y\n"))
 	root.SetArgs([]string{"claude", "-m", "qwen/qwen3-coder:free"})
 
@@ -269,6 +326,12 @@ func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
 	}
 	if got.Path == "" {
 		t.Error("launch should proceed once the user types y")
+	}
+	// As with the --yes sibling test: proceeding alone doesn't prove
+	// CheckModel's warning path actually ran (a no-op compatibility check
+	// would look identical). The warning reaching stderr is the evidence.
+	if !strings.Contains(stderr.String(), "warning:") {
+		t.Errorf("expected a compatibility warning on stderr, got: %q", stderr.String())
 	}
 }
 
