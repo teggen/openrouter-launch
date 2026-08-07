@@ -166,3 +166,37 @@ func TestCacheRecoversFromCorruptFile(t *testing.T) {
 		t.Errorf("got %d models, want 1", len(snap.Models))
 	}
 }
+
+func TestCachePathUsesXDGCacheHome(t *testing.T) {
+	xdgDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", xdgDir)
+
+	path, err := CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+
+	expected := filepath.Join(xdgDir, "openrouter-launch", "models.json")
+	if path != expected {
+		t.Errorf("got %s, want %s", path, expected)
+	}
+}
+
+func TestCachePathFallsBackToHomeCache(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", "")
+
+	path, err := CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Fatalf("UserHomeDir: %v", err)
+	}
+
+	expected := filepath.Join(home, ".cache", "openrouter-launch", "models.json")
+	if path != expected {
+		t.Errorf("got %s, want %s", path, expected)
+	}
+}
