@@ -84,6 +84,9 @@ func TestModelsCommandProviderFilter(t *testing.T) {
 	if strings.Contains(got, "anthropic/claude-opus-4.6") {
 		t.Errorf("--provider should exclude other vendors:\n%s", got)
 	}
+	if strings.Contains(got, "qwen/qwen3-coder:free") {
+		t.Errorf("--provider should exclude qwen models:\n%s", got)
+	}
 }
 
 func TestModelsCommandMinContextFilter(t *testing.T) {
@@ -92,6 +95,12 @@ func TestModelsCommandMinContextFilter(t *testing.T) {
 
 	if strings.Contains(got, "openai/o1-mini") {
 		t.Errorf("--min-context should exclude the 128k model:\n%s", got)
+	}
+	if !strings.Contains(got, "anthropic/claude-opus-4.6") {
+		t.Errorf("--min-context should include exactly 200k model:\n%s", got)
+	}
+	if !strings.Contains(got, "qwen/qwen3-coder:free") {
+		t.Errorf("--min-context should include 262k model:\n%s", got)
 	}
 }
 
@@ -120,7 +129,7 @@ func TestFormatPrice(t *testing.T) {
 }
 
 func TestFormatContext(t *testing.T) {
-	cases := map[int]string{0: "-", 128000: "128k", 1000000: "1000k"}
+	cases := map[int]string{-1: "-", 0: "-", 128000: "128k", 1000000: "1000k"}
 	for in, want := range cases {
 		if got := formatContext(in); got != want {
 			t.Errorf("formatContext(%d) = %q, want %q", in, got, want)
