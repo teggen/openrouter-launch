@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -454,6 +455,67 @@ func TestConfirmDefaultsToNoOnEOF(t *testing.T) {
 	}
 	if ok {
 		t.Error("expected confirm to default to false on EOF")
+	}
+}
+
+// fakeExitCoder mimics *exec.ExitError's ExitCode() method (promoted from
+// its embedded *os.ProcessState) without spawning a real process, which
+// tests must not do. This is the shape of the error agent.Run
+// (exec_windows.go) returns when the launched agent exits nonzero on
+// Windows: resolveAndRun must recognize it and suppress cobra's own
+// "Error: ..." line, since the agent already inherited stderr and reported
+// its own failure - printing cobra's wrapped "run claude: exit status N" on
+// top would be redundant noise, and main still needs the real error value
+// to extract the exit code from (see exitCode in main.go).
+type fakeExitCoder struct{ code int }
+
+func (e fakeExitCoder) Error() string { return fmt.Sprintf("exit status %d", e.code) }
+func (e fakeExitCoder) ExitCode() int { return e.code }
+
+func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
+	useFakeCatalog(t)
+	stubClaudePath(t)
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+
+	prev := runner
+	runner = func(agent.Command) error {
+		return fmt.Errorf("run claude: %w", fakeExitCoder{code: 3})
+	}
+	t.Cleanup(func() { runner = prev })
+
+	var out bytes.Buffer
+	root := NewRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus-4.6"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected the agent's exit error to propagate to main")
+	}
+	if strings.Contains(out.String(), "Error:") {
+		t.Errorf("cobra's own error line should be suppressed for an agent exit code, got: %q", out.String())
+	}
+}
+
+// TestLaunchOtherErrorsStillPrintCobraErrorLine guards against
+// over-broadly silencing: only an agent exit-code error should suppress
+// cobra's default line, not every failure.
+func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
+	setupLaunch(t)
+
+	var out bytes.Buffer
+	root := NewRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"claude"}) // missing --model
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("expected an error")
+	}
+	if !strings.Contains(out.String(), "Error:") {
+		t.Errorf("expected cobra's default error line for a non-exit-code error, got: %q", out.String())
 	}
 }
 

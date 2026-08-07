@@ -21,7 +21,7 @@ func newModelsCmd(global *globalFlags) *cobra.Command {
 				filter.Search = args[0]
 			}
 
-			snap, err := loadCatalog(cmd.Context(), global.refresh)
+			snap, err := loadCatalog(cmd.Context(), global.refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

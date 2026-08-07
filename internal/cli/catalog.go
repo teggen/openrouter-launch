@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
+	"io"
 	"time"
 
 	"github.com/teggen/openrouter-launch/internal/openrouter"
@@ -12,9 +12,11 @@ import (
 // catalogSource overrides the HTTP client in tests. nil means use the real one.
 var catalogSource openrouter.Catalog
 
-// loadCatalog returns the model catalog, warning on stderr when stale data is
-// served because a refresh failed.
-func loadCatalog(ctx context.Context, refresh bool) (openrouter.Snapshot, error) {
+// loadCatalog returns the model catalog, warning on warnings when stale data
+// is served because a refresh failed. Callers pass cmd.ErrOrStderr() so the
+// warning honors cobra's IO redirection like every other CLI diagnostic,
+// rather than writing to os.Stderr directly.
+func loadCatalog(ctx context.Context, refresh bool, warnings io.Writer) (openrouter.Snapshot, error) {
 	path, err := openrouter.CachePath()
 	if err != nil {
 		return openrouter.Snapshot{}, err
@@ -32,7 +34,7 @@ func loadCatalog(ctx context.Context, refresh bool) (openrouter.Snapshot, error)
 	}
 
 	if snap.Stale {
-		fmt.Fprintf(os.Stderr,
+		fmt.Fprintf(warnings,
 			"warning: could not refresh the model catalog (%v); using cached data from %s ago\n",
 			snap.StaleErr, snap.Age(time.Now()).Round(time.Minute))
 	}

@@ -68,7 +68,7 @@ func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraAr
 		return fmt.Errorf("%s is not installed.\n%s", spec.Launcher.DisplayName(), installable.InstallHint())
 	}
 
-	snap, err := loadCatalog(cmd.Context(), global.refresh)
+	snap, err := loadCatalog(cmd.Context(), global.refresh, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,30 @@ func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraAr
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not save last selection: %v\n", err)
 	}
 
-	return runner(command)
+	if err := runner(command); err != nil {
+		if isAgentExitError(err) {
+			// On Windows, agent.Run waits for the child instead of replacing
+			// the process (exec_windows.go), so a nonzero exit reaches here
+			// as an error wrapping *exec.ExitError. The agent already
+			// inherited stderr and reported its own failure, so cobra's
+			// default "Error: ..." line would just be redundant noise on
+			// top; main still receives the real error to extract the exit
+			// code from (see exitCode in main.go).
+			cmd.SilenceErrors = true
+		}
+		return err
+	}
+	return nil
+}
+
+// isAgentExitError reports whether err carries the launched agent's own
+// exit code, i.e. it wraps a value with an ExitCode() int method (the
+// structural shape of *exec.ExitError). On Unix, agent.Run only returns an
+// error when syscall.Exec itself fails to start the process, so this is
+// always false there.
+func isAgentExitError(err error) bool {
+	var ec interface{ ExitCode() int }
+	return errors.As(err, &ec)
 }
 
 // confirm asks a yes/no question, defaulting to no. --yes answers yes.
