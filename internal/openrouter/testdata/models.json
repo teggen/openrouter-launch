@@ -1,0 +1,30 @@
+{
+  "data": [
+    {
+      "id": "anthropic/claude-opus-4.6",
+      "canonical_slug": "anthropic/claude-opus-4.6",
+      "name": "Anthropic: Claude Opus 4.6",
+      "description": "Flagship reasoning model.",
+      "context_length": 200000,
+      "pricing": { "prompt": "0.000015", "completion": "0.000075" },
+      "supported_parameters": ["tools", "tool_choice", "max_tokens", "temperature"]
+    },
+    {
+      "id": "qwen/qwen3-coder:free",
+      "canonical_slug": "qwen/qwen3-coder",
+      "name": "Qwen: Qwen3 Coder (free)",
+      "description": "Free coding model.",
+      "context_length": 262144,
+      "pricing": { "prompt": "0", "completion": "0" },
+      "supported_parameters": ["tools", "max_tokens"]
+    },
+    {
+      "id": "openai/o1-mini",
+      "name": "OpenAI: o1-mini",
+      "description": "Reasoning model without tool support.",
+      "context_length": 128000,
+      "pricing": { "prompt": "0.0000011", "completion": "0.0000044" },
+      "supported_parameters": ["max_tokens", "reasoning"]
+    }
+  ]
+}
