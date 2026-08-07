@@ -12,7 +12,7 @@ import (
 // catalogSource overrides the HTTP client in tests. nil means use the real one.
 var catalogSource openrouter.Catalog
 
-// loadCatalog returns the model catalog, warning on warnings when stale data
+// loadCatalog returns the model catalog, writing to warnings when stale data
 // is served because a refresh failed. Callers pass cmd.ErrOrStderr() so the
 // warning honors cobra's IO redirection like every other CLI diagnostic,
 // rather than writing to os.Stderr directly.
