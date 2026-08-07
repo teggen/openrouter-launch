@@ -10,7 +10,7 @@ type Filter struct {
 	ToolsOnly bool
 	// FreeOnly keeps only zero-cost models.
 	FreeOnly bool
-	// Provider matches the slug prefix before "/".
+	// Provider matches Model.Provider case-insensitively.
 	Provider string
 	// MinContext is the minimum context window in tokens.
 	MinContext int

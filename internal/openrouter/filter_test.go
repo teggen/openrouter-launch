@@ -156,3 +156,52 @@ func TestSuggestRespectsLimit(t *testing.T) {
 		t.Errorf("got %d suggestions, want 2", len(got))
 	}
 }
+
+func TestApplySearchMatchesIDOnly(t *testing.T) {
+	// Isolates the ID branch: search term in ID but not in Name.
+	models := []Model{
+		{ID: "vendor/uniqueslug-model", Name: "Generic Model"},
+	}
+	got := Apply(models, Filter{Search: "uniqueslug"})
+	want := []string{"vendor/uniqueslug-model"}
+	if !equalIDs(got, want) {
+		t.Errorf("got %v, want %v", ids(got), want)
+	}
+}
+
+func TestApplySearchMatchesNameOnly(t *testing.T) {
+	// Isolates the Name branch: search term in Name but not in ID.
+	models := []Model{
+		{ID: "vendor/model", Name: "Distinctive AI Name"},
+	}
+	got := Apply(models, Filter{Search: "distinctive"})
+	want := []string{"vendor/model"}
+	if !equalIDs(got, want) {
+		t.Errorf("got %v, want %v", ids(got), want)
+	}
+}
+
+func TestApplyMaxPriceAtCeiling(t *testing.T) {
+	// Model priced exactly at the ceiling should be kept.
+	models := []Model{
+		{ID: "vendor/atceiling", CompletionPricePerM: 10},
+		{ID: "vendor/above", CompletionPricePerM: 10.01},
+	}
+	got := Apply(models, Filter{MaxPrice: 10})
+	want := []string{"vendor/atceiling"}
+	if !equalIDs(got, want) {
+		t.Errorf("got %v, want %v", ids(got), want)
+	}
+}
+
+func TestApplyProviderCaseInsensitive(t *testing.T) {
+	// Provider matching should be case-insensitive.
+	models := []Model{
+		{ID: "openai/gpt-4", Provider: "openai"},
+	}
+	got := Apply(models, Filter{Provider: "OpenAI"})
+	want := []string{"openai/gpt-4"}
+	if !equalIDs(got, want) {
+		t.Errorf("got %v, want %v", ids(got), want)
+	}
+}
