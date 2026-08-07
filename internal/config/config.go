@@ -92,6 +92,9 @@ func Save(cfg *Config) error {
 	tmpName := tmp.Name()
 	defer os.Remove(tmpName)
 
+	// Explicit rather than relying on os.CreateTemp's 0600 default: this is
+	// the API-key confidentiality guarantee, and this comment is what should
+	// stop a future cleanup from deleting the call as redundant.
 	if err := tmp.Chmod(0o600); err != nil {
 		tmp.Close()
 		return fmt.Errorf("chmod temp config: %w", err)

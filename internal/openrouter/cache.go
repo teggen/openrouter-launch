@@ -86,6 +86,9 @@ func (c *Cache) read() (cacheFile, bool) {
 	if err := json.Unmarshal(data, &cf); err != nil {
 		return cacheFile{}, false
 	}
+	// An empty Models slice is also treated as a miss: it guards against a
+	// truncated or otherwise empty write. Worst case this just forces a
+	// refetch, which is harmless.
 	if len(cf.Models) == 0 {
 		return cacheFile{}, false
 	}
