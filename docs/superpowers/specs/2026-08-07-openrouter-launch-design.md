@@ -50,6 +50,7 @@ openrouter-launch/
 
 Module path `github.com/teggen/openrouter-launch`, Go 1.22+.
 Dependencies: `spf13/cobra`, `charmbracelet/bubbletea`, `charmbracelet/lipgloss`.
+No OpenRouter SDK — see the client section for why.
 
 ### Required interface
 
@@ -148,6 +149,36 @@ silently dropped.
 These appear in listings with their reason so the absence is explained.
 
 ## OpenRouter client
+
+### Implementation choice
+
+An official Go SDK exists (`github.com/OpenRouterTeam/go-sdk`) alongside several
+community clients. We do not use one, because **this tool never calls the chat
+API** — the launched agents talk to OpenRouter themselves. The only request we
+make is `GET /api/v1/models`, which is public, unauthenticated, and whose
+response we normalize into our own display type regardless.
+
+Weighed against that, the official SDK costs a Go 1.25.10 toolchain floor
+(versus 1.22 here), pre-1.0 API churn at v0.7.x, and generated wrapper types
+leaking into our code.
+
+So the catalog is fetched by a hand-rolled `net/http` + `encoding/json` client
+of roughly 120 lines, with no third-party dependency — but behind an interface,
+so the decision is reversible in one file:
+
+```go
+// Catalog supplies the model list. The concrete implementation is an HTTP
+// client with a disk cache; tests use a fixture implementation.
+type Catalog interface {
+	Models(ctx context.Context) ([]Model, error)
+}
+```
+
+If credits balance or per-generation cost display is ever wanted, the SDK can be
+introduced as an alternate `Catalog` implementation without touching the TUI,
+registry, or CLI.
+
+### Endpoint
 
 `GET https://openrouter.ai/api/v1/models?sort=most-popular` returns the full
 catalog in a useful default order. The endpoint is public, so browsing works
