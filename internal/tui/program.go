@@ -21,7 +21,12 @@ var isTTY = func() bool {
 // isTerminal reports whether f is a character device. This is the stdlib
 // check; golang.org/x/term would do the same thing at the cost of a direct
 // dependency.
-func isTerminal(f *os.File) bool {
+//
+// A package variable, like isTTY, rather than a plain function: it lets a
+// test replace it with a recorder to pin that isTTY consults both os.Stdin
+// and os.Stdout — not one of them twice — which is not otherwise observable
+// from outside the package.
+var isTerminal = func(f *os.File) bool {
 	info, err := f.Stat()
 	if err != nil {
 		return false
@@ -56,14 +61,20 @@ func runProgram[M tea.Model](m M, opts ...tea.ProgramOption) (M, error) {
 // The picker takes the alt screen because it is the one view that wants the
 // whole terminal and should leave no scrollback behind. The others run
 // inline, so their final render stays on screen as a wizard trail.
-func liveScreens() (screens, error) {
+//
+// extra is appended to every screen's own program options. Run calls
+// liveScreens with none, so production is unaffected; it exists so tests can
+// drive the real closures below — the seam between the driver and the screen
+// models — with tea.WithInput/tea.WithOutput pointed at buffers instead of
+// the terminal, with no TTY and no bubbletea program left dangling.
+func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 	if !isTTY() {
 		return screens{}, ErrNoTerminal
 	}
 
 	return screens{
 		root: func(in rootInput) (rootChoice, error) {
-			m, err := runProgram(newRootModel(in))
+			m, err := runProgram(newRootModel(in), extra...)
 			if err != nil {
 				return rootChoice{}, err
 			}
@@ -71,7 +82,7 @@ func liveScreens() (screens, error) {
 		},
 
 		pick: func(in pickerInput) (pickerChoice, error) {
-			m, err := runProgram(newPickerModel(in), tea.WithAltScreen())
+			m, err := runProgram(newPickerModel(in), pickerProgramOptions(extra)...)
 			if err != nil {
 				return pickerChoice{}, err
 			}
@@ -85,7 +96,7 @@ func liveScreens() (screens, error) {
 		},
 
 		prompt: func(in promptInput) (string, bool, error) {
-			m, err := runProgram(newPromptModel(in))
+			m, err := runProgram(newPromptModel(in), extra...)
 			if err != nil {
 				return "", false, err
 			}
@@ -93,7 +104,7 @@ func liveScreens() (screens, error) {
 		},
 
 		confirm: func(in confirmInput) (bool, error) {
-			m, err := runProgram(newConfirmModel(in))
+			m, err := runProgram(newConfirmModel(in), extra...)
 			if err != nil {
 				return false, err
 			}
@@ -101,8 +112,15 @@ func liveScreens() (screens, error) {
 		},
 
 		notice: func(in noticeInput) error {
-			_, err := runProgram(newNoticeModel(in))
+			_, err := runProgram(newNoticeModel(in), extra...)
 			return err
 		},
 	}, nil
+}
+
+// pickerProgramOptions is the picker's program options: the alt screen plus
+// whatever the caller adds. Named rather than inlined so it is one thing a
+// test can reason about instead of a literal buried in a closure.
+func pickerProgramOptions(extra []tea.ProgramOption) []tea.ProgramOption {
+	return append([]tea.ProgramOption{tea.WithAltScreen()}, extra...)
 }
