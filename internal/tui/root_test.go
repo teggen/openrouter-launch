@@ -147,16 +147,24 @@ func TestRootEscCancels(t *testing.T) {
 	}
 }
 
+// threeAgents has only two selectable rows (claude, codex), so under
+// wraparound semantics they'd form a 2-cycle: pressing Up or Down any number
+// of times would land on one of the same two rows a stopping implementation
+// would reach, and no press count could tell the two semantics apart. A
+// single boundary press is the only case where they diverge — stopping is a
+// no-op, wrapping jumps to the opposite end — so that is what this test
+// asserts.
 func TestRootCursorStopsAtBothEnds(t *testing.T) {
 	m := rootFixture(nil, "")
-	// Up from the first selectable row must not wrap or go negative.
-	m = press(t, m, typeKey(tea.KeyUp), typeKey(tea.KeyUp), typeKey(tea.KeyEnter))
+	// claude is the first selectable row; Up must be a no-op, not a wrap to codex.
+	m = press(t, m, typeKey(tea.KeyUp), typeKey(tea.KeyEnter))
 	if m.choice.Agent == nil || m.choice.Agent.Name != "claude" {
 		t.Errorf("up past the top selected %v, want the first agent", m.choice.Agent)
 	}
 
-	m2 := rootFixture(nil, "")
-	m2 = press(t, m2, typeKey(tea.KeyDown), typeKey(tea.KeyDown), typeKey(tea.KeyDown), typeKey(tea.KeyEnter))
+	m2 := rootFixture(nil, "codex")
+	// codex is the last selectable row; Down must be a no-op, not a wrap to claude.
+	m2 = press(t, m2, typeKey(tea.KeyDown), typeKey(tea.KeyEnter))
 	if m2.choice.Agent == nil || m2.choice.Agent.Name != "codex" {
 		t.Errorf("down past the bottom selected %v, want the last agent", m2.choice.Agent)
 	}
