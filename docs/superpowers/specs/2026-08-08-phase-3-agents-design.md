@@ -220,12 +220,62 @@ data).
 **Live headless, during the build (owner-approved credit spend):**
 
 - `codex exec` one-shot with a cheap model through the managed overrides —
-  confirms `base_url`, `env_key`, `wire_api=chat` on codex 0.146.1.
+  confirms `base_url`, `env_key`, `wire_api` on codex 0.146.1.
 - `opencode run` one-shot — confirms the first-slash model split and
   env-only auth on opencode 1.0.69.
 - Each verifies the reply actually came through OpenRouter (the response
   arrives with an OpenRouter generation id, or the failure names the real
   cause).
+
+### Live verification results (2026-08-08)
+
+Run against the real OpenRouter API with `openai/gpt-4o-mini`
+(owner-approved cents-level spend), codex 0.146.1, opencode 1.0.69, from a
+scratch working directory each time. Full logs (key redacted — never
+appeared in any of them, confirmed by grep) live alongside this spec's task
+workspace: `.superpowers/sdd/2026-08-08-phase-3-agents/live-*.log`.
+
+- **Codex, raw mechanism.** `wire_api="chat"` is rejected outright by codex
+  0.146.1: `Error loading config.toml: 'wire_api = "chat"' is no longer
+  supported. ... set 'wire_api = "responses"'`. Retried with
+  `wire_api="responses"`, which produced a real "OK" completion through
+  OpenRouter. `codex.go` and its test now use `"responses"` (commit
+  `20ed482`, `fix(agent): codex wire_api verified as responses`); `base_url`
+  and `env_key` were confirmed correct on the same run.
+- **Codex, through our binary.** `orl codex -m openai/gpt-4o-mini -- exec
+  --skip-git-repo-check "…"` succeeded end to end with the same "OK" reply —
+  managed global flags placed before the `exec` subcommand parse correctly.
+  No passthrough-subcommand limitation was found; the speculative risk noted
+  in the Codex launcher section above did not materialize.
+- **OpenCode, raw mechanism.** Env-only auth worked on the first try —
+  `OPENCODE_CONFIG_CONTENT` with `"model":"openrouter/openai/gpt-4o-mini"`
+  plus `OPENROUTER_API_KEY` produced "OK" with exit 0. The explicit
+  `provider.openrouter.options.apiKey` escalation in the Contingency section
+  was not needed; no code or config-variant change was made.
+- **OpenCode, through our binary.** `orl opencode -m openai/gpt-4o-mini --
+  run "…"` also produced the "OK" completion, confirming the same
+  mechanism through our arg/env plumbing. Both this run and a raw repeat
+  then exited 1 with `Error: [DecimalError] Invalid argument: [object
+  Object]` — but only *after* printing "OK". This reproduces identically
+  whether invoked raw or through our binary and only starts appearing once
+  opencode's own `~/.cache/opencode/models.json` catalog exists locally
+  (absent on the very first-ever `opencode run`, which is why the raw check
+  above came back clean) — it is opencode's own post-completion cost
+  formatting that breaks on this model/provider pairing, not our config
+  mechanism. Not one of the auth/protocol/model-not-found failure classes
+  this phase's contingency plan covers, and not something `Command()`
+  controls, so no code change follows from it; recorded here as a known
+  opencode 1.0.69 rough edge.
+- **Zero-touch audit.** `~/.codex/config.toml` is byte-identical before and
+  after all codex runs (pre-run copy diffed against post-run file: no
+  changes; mtime unchanged from before this phase's work). `~/.local/state/
+  opencode/` and `~/.opencode` are untouched (same files, same mtimes,
+  pre/post). Codex wrote its own session/sandbox bookkeeping
+  (`goals_1.sqlite`, `installation_id`, `.sandbox_migration`) and opencode
+  populated its own package/model-catalog cache under `~/.cache/opencode`
+  and `~/.config/opencode` — both are the tools acting on their own behalf
+  (Landmine 6 governs *our* writes, not a CLI's own operational state), not
+  files this project's `Command()` or a `ConfigWriter` touched.
 
 **Human interactive smoke test at the end** (same standard as Phase 2):
 `openrouter-launch codex`, `openrouter-launch opencode`, picker flow,
