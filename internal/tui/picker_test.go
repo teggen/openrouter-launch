@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -404,6 +405,54 @@ func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
 		if got := lipgloss.Width(line); got > width {
 			t.Errorf("row line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
 		}
+	}
+}
+
+// Pins chromeHeight against bubbletea's actual renderer arithmetic
+// (standard_renderer.go's flush) rather than eyeballing the constant:
+//
+//	newLines := strings.Split(r.buf.String(), "\n")
+//	if r.height > 0 && len(newLines) > r.height {
+//	    newLines = newLines[len(newLines)-r.height:]
+//	}
+//
+// r.buf.String() is View()'s output verbatim. Two properties matter: the
+// split must not have more elements than the terminal is tall (or the
+// renderer truncates from the TOP, discarding line 0), and — reproducing
+// that same truncation here — line 0, the "Model for <agent>    search:
+// <query>" line, must survive it. chromeHeight = 8 fails both: View()'s
+// trailing "\n" pushes the split to height+1 elements, and the renderer
+// drops exactly the title line to get back down to height. chromeHeight =
+// 10 fails neither — it only wastes one row — which is why this test does
+// not merely check the title survives; it also checks the raw line count,
+// so an off-by-one that shrinks the list without ever truncating stays
+// caught by intent even though it renders correctly today.
+func TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights(t *testing.T) {
+	for _, height := range []int{24, 30, 40} {
+		t.Run(fmt.Sprintf("height=%d", height), func(t *testing.T) {
+			m := newPickerModel(pickerInput{
+				Agent: stubSpec("claude"), Models: ortest.Models(), Height: height, Width: 100,
+			})
+
+			rawLines := strings.Split(m.View(), "\n")
+			if len(rawLines) > height {
+				t.Errorf("View() split into %d lines, want at most %d (the terminal height) — "+
+					"the renderer will truncate from the top", len(rawLines), height)
+			}
+
+			// Reproduce the renderer's own truncation so the second
+			// assertion checks what would actually reach the screen, not
+			// just the unclamped View() output.
+			visible := rawLines
+			if len(visible) > height {
+				visible = visible[len(visible)-height:]
+			}
+			frame := strings.Join(visible, "\n")
+			if !strings.Contains(frame, "Model for") {
+				t.Errorf("at height %d, the title/search line is not in the visible frame:\n%s",
+					height, frame)
+			}
+		})
 	}
 }
 

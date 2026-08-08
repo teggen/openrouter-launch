@@ -14,12 +14,22 @@ const (
 	// defaultListHeight is used before the first WindowSizeMsg arrives, so
 	// the picker renders something rather than nothing on its first frame.
 	defaultListHeight = 10
-	// chromeHeight is the non-list part of the view: the title line, the
-	// blank line under it, the blank line after the list, the two
-	// description-pane lines, the blank line before the status line, the
-	// status line, and the key footer — 8 lines, measured at terminal
-	// heights 24 and 40.
-	chromeHeight = 8
+	// chromeHeight is the budget subtracted from the terminal height to get
+	// listHeight(). View() itself writes 8 lines of non-list chrome: the
+	// title line, the blank line under it, the blank line after the list,
+	// the two description-pane lines, the blank line before the status line,
+	// the status line, and the key footer. But View()'s output also ENDS in
+	// "\n", so splitting it the way bubbletea's standard renderer does
+	// (strings.Split on "\n") yields one more element than the newline
+	// count. bubbletea drops from the top of that split when it has more
+	// elements than the terminal is tall — and line 0 is the title/search
+	// line, so an off-by-one here makes the search echo invisible at every
+	// terminal height, not just small ones. chromeHeight must therefore be
+	// 9 (8 lines of chrome + 1 for the trailing newline), not 8: recounting
+	// the literal chrome lines in View() and stopping there reintroduces
+	// this bug. See TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights,
+	// which pins this against the renderer's actual arithmetic.
+	chromeHeight = 9
 	// descriptionHeight is fixed on purpose. See descriptionLines.
 	descriptionHeight = 2
 )
