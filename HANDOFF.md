@@ -33,7 +33,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Tests | 364 total, 175 of them in `internal/tui` |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean, Linux/macOS/Windows cross-build |
 | Agents shipped | Claude Code only |
-| **Not pushed** | `origin/main` is at `94e91e8`, **47 commits behind**. Everything since — the planner refactor and the whole TUI — is committed locally only. An earlier revision of this file claimed the refactor was "pushed to `main`"; that was wrong. |
+| Pushed | Yes — `origin/main` is current as of the TUI phase. It had been 47 commits behind for the whole planner refactor and TUI build; a revision of this file also wrongly claimed the refactor was already pushed. Check `git status -sb` rather than trusting this row. |
 
 Working commands, all smoke-tested against the live API:
 
