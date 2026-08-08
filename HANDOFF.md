@@ -167,7 +167,10 @@ sequence and never touches the terminal:
   takes the service, and the TUI will take the same instance.
 - `Service.Plan` runs the nine guards and returns a built `agent.Command`
   plus `[]Warning`. A `Warning` with a non-empty `Question` is one the
-  caller must confirm.
+  caller must confirm. Warnings collected before a failing guard are
+  returned alongside the error, not discarded — callers must render
+  `Plan.Warnings` before inspecting `err`; the obvious
+  `if err != nil { return err }` shape silently drops them.
 - Hard stops are typed errors carrying their data: `NotInstalledError.Hint`,
   `UnknownModelError.Suggestions`, `UnsupportedAgentError.Reason`.
 - `Service.Launch` records the selection and hands off in one function, so
@@ -186,6 +189,14 @@ Still to do for the TUI itself:
    why the planner is its own package.
 4. Reconsider the shared mutable `&Claude{}` in the registry if a background
    refresh goroutine ever races the `LookPath` field tests patch.
+5. `formatPrice` and `formatContext` (`internal/cli/models.go`) are the
+   model-table renderers the TUI will want; they are unexported in `cli`.
+   The TUI will either duplicate them or prompt a move — decide then, not
+   under time pressure.
+6. `fakeModels()` fixtures now exist in both `internal/cli` and
+   `internal/launch` test files and must be kept in sync by hand: several
+   tests in both packages depend on `openai/o1-mini` being the only entry
+   without tool support.
 
 ## Phase 3+ — more agents
 

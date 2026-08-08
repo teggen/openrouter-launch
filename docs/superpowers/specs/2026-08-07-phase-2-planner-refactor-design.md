@@ -342,7 +342,7 @@ if len(args) == 1 {
 
 ## Behavior changes
 
-Two, both intended:
+Four, all intended:
 
 1. **Bare `openrouter-launch models` becomes tools-only.** `config.defaults()`
    sets `ToolsOnly: true` ("a coding agent without tool calling is unusable"),
@@ -362,6 +362,18 @@ Two, both intended:
    the min-context guard is broken rather than passing on the tools filter.
 2. **A `Launcher.Command` build error no longer follows a compatibility prompt**
    — see the documented deviation above.
+3. **`Plan` returns warnings accumulated before a fatal guard alongside the
+   error, rather than discarding them.** A stale catalog is frequently the
+   reason a later guard failed - an unknown model because the cache predates
+   it, for instance - so `Plan.Warnings` must be rendered before the error is
+   inspected. The obvious `p, err := svc.Plan(...); if err != nil { return
+   err }` shape drops them silently; this is documented on `Plan` itself so a
+   Phase 2 TUI author reading godoc does not write that shape.
+4. **`models` now calls `config.Load()` and returns its error**, so it fails
+   on an unreadable or malformed config where before it listed models
+   regardless (it never read config). This is consistent with every other
+   command already failing this way; making `models` uniquely tolerant of a
+   broken config would be an inconsistency, not a feature.
 
 Everything else is byte-identical, including every error string and the order in
 which warnings reach stderr.
