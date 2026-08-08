@@ -13,6 +13,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 )
 
 // harness builds a CLI wired to an in-memory catalog, with config and cache
@@ -24,13 +25,13 @@ type harness struct {
 	ran agent.Command
 }
 
-// newHarness builds a harness against the shared fakeCatalog fixture. Most
+// newHarness builds a harness against the shared ortest fixture catalog. Most
 // tests want this; use newHarnessWith directly when a test needs a
 // different catalog (e.g. one that always fails, to exercise the
 // stale-cache fallback).
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	return newHarnessWith(t, &fakeCatalog{models: fakeModels()})
+	return newHarnessWith(t, ortest.NewCatalog())
 }
 
 // newHarnessWith builds a harness against catalog, with config and cache
@@ -53,7 +54,7 @@ func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
 }
 
 // seedStaleCache writes a catalog cache file older than openrouter.DefaultTTL
-// into the isolated XDG_CACHE_HOME, containing the fakeModels() fixture, so
+// into the isolated XDG_CACHE_HOME, containing the ortest fixture, so
 // Service.Snapshot falls back to stale cached data. Call it after the
 // harness (or otherwise XDG_CACHE_HOME) is set up.
 func seedStaleCache(t *testing.T) {
@@ -68,7 +69,7 @@ func seedStaleCache(t *testing.T) {
 	data, err := json.Marshal(struct {
 		FetchedAt time.Time          `json:"fetched_at"`
 		Models    []openrouter.Model `json:"models"`
-	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: fakeModels()}) // older than DefaultTTL
+	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: ortest.Models()}) // older than DefaultTTL
 	if err != nil {
 		t.Fatalf("marshal cache file: %v", err)
 	}

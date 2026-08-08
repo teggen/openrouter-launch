@@ -55,9 +55,9 @@ func newModelsCmd(a *app) *cobra.Command {
 					tools = "yes"
 				}
 				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					m.ID, formatContext(m.ContextLength),
-					formatPrice(m.PromptPricePerM, m.PricingUnknown),
-					formatPrice(m.CompletionPricePerM, m.PricingUnknown), tools)
+					m.ID, openrouter.FormatContext(m.ContextLength),
+					openrouter.FormatPrice(m.PromptPricePerM, m.PricingUnknown),
+					openrouter.FormatPrice(m.CompletionPricePerM, m.PricingUnknown), tools)
 			}
 			return w.Flush()
 		},
@@ -74,24 +74,4 @@ func newModelsCmd(a *app) *cobra.Command {
 		"maximum USD per million completion tokens")
 
 	return cmd
-}
-
-// formatPrice renders a USD-per-million-tokens price for display. Unknown
-// pricing renders as "?" so it is never mistaken for free.
-func formatPrice(usdPerM float64, unknown bool) string {
-	if unknown {
-		return "?"
-	}
-	if usdPerM == 0 {
-		return "free"
-	}
-	return fmt.Sprintf("$%.2f", usdPerM)
-}
-
-// formatContext renders a context window in thousands of tokens.
-func formatContext(tokens int) string {
-	if tokens <= 0 {
-		return "-"
-	}
-	return fmt.Sprintf("%dk", tokens/1000)
 }

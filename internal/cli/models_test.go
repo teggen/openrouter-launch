@@ -1,32 +1,11 @@
 package cli
 
 import (
-	"context"
 	"strings"
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
-
-type fakeCatalog struct{ models []openrouter.Model }
-
-func (f *fakeCatalog) Models(context.Context) ([]openrouter.Model, error) {
-	return f.models, nil
-}
-
-func fakeModels() []openrouter.Model {
-	return []openrouter.Model{
-		{ID: "anthropic/claude-opus-4.6", Name: "Anthropic: Claude Opus 4.6",
-			ContextLength: 200000, PromptPricePerM: 15, CompletionPricePerM: 75,
-			SupportsTools: true, Provider: "anthropic"},
-		{ID: "qwen/qwen3-coder:free", Name: "Qwen: Qwen3 Coder (free)",
-			ContextLength: 262144, SupportsTools: true, Provider: "qwen"},
-		{ID: "openai/o1-mini", Name: "OpenAI: o1-mini",
-			ContextLength: 128000, PromptPricePerM: 1.1, CompletionPricePerM: 4.4,
-			Provider: "openai"},
-	}
-}
 
 func TestModelsCommandListsAll(t *testing.T) {
 	h := newHarness(t)
@@ -167,18 +146,6 @@ func TestModelsCommandMaxPriceFilter(t *testing.T) {
 	}
 }
 
-func TestFormatPrice(t *testing.T) {
-	cases := map[float64]string{0: "free", 15: "$15.00", 1.1: "$1.10"}
-	for in, want := range cases {
-		if got := formatPrice(in, false); got != want {
-			t.Errorf("formatPrice(%v) = %q, want %q", in, got, want)
-		}
-	}
-	if got := formatPrice(0, true); got != "?" {
-		t.Errorf("formatPrice with unknown pricing = %q, want %q", got, "?")
-	}
-}
-
 func mustLoadConfig(t *testing.T) *config.Config {
 	t.Helper()
 	cfg, err := config.Load()
@@ -186,13 +153,4 @@ func mustLoadConfig(t *testing.T) *config.Config {
 		t.Fatalf("config.Load: %v", err)
 	}
 	return cfg
-}
-
-func TestFormatContext(t *testing.T) {
-	cases := map[int]string{-1: "-", 0: "-", 128000: "128k", 1000000: "1000k"}
-	for in, want := range cases {
-		if got := formatContext(in); got != want {
-			t.Errorf("formatContext(%d) = %q, want %q", in, got, want)
-		}
-	}
 }
