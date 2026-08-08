@@ -1,7 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-08 · **State:** Phase 1 complete, Phase 2's
-prerequisite refactor complete — both pushed to `main`
+**Last updated:** 2026-08-08 · **State:** Phase 2 complete — TUI shipped
 
 Read this first if you are picking the project up with no prior context.
 
@@ -32,11 +31,13 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, Linux/macOS/Windows cross-build |
 | Agents shipped | Claude Code only |
-| Phase 2 | Prerequisite refactor **done** (`internal/launch`, see below); the bubbletea TUI itself is not started |
+| Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
 
 Working commands, all smoke-tested against the live API:
 
 ```bash
+openrouter-launch                     # bare invocation: opens the root screen
+openrouter-launch claude              # no -m: straight to the picker
 openrouter-launch agents
 openrouter-launch models --tools --free --provider anthropic
 openrouter-launch models --min-context 200000 --max-price 5
@@ -60,6 +61,7 @@ internal/openrouter/         model type, HTTP catalog client, disk cache, filter
 internal/config/             XDG config, API key resolution, profile CRUD
 internal/agent/              Launcher interface, registry, Claude launcher, process handoff
 internal/launch/             the terminal-free planner: guards, warnings, typed conditions
+internal/tui/                the bubbletea screens and the session driver
 internal/cli/                cobra command tree
 ```
 
@@ -157,46 +159,78 @@ remove the panic. `newLaunchCmds` runs inside `NewRootCmdWith` (called by both
 launcher would crash the binary — and every test — on construction, not just
 one subcommand.
 
-## Phase 2 — the TUI
+**11. `tui.Run` must never launch.** It returns an approved `launch.Plan`; the
+caller calls `Service.Launch`. Every bubbletea program must have torn down
+before `syscall.Exec`, or the agent inherits a raw-mode terminal. The
+one-program-per-screen architecture makes this structural — there is no other
+ordering available — so do not "simplify" it into a single program with a
+screen enum.
 
-The prerequisite refactor is **done**. `internal/launch` now owns the launch
-sequence and never touches the terminal:
+**12. `--refresh` is spent exactly once.** `Service.Snapshot` runs twice per
+launch: once to fill the picker, once inside `Plan`. `session.takeRefresh`
+hands it to whichever runs first and `Plan` gets `Refresh: false` after the
+picker has already refreshed. Passing it to both doubles the API traffic for
+one launch while looking correct. Pinned by `TestRunSpendsRefreshExactlyOnce`.
 
-- `launch.Service{Catalog, Run}` carries both seams as nilable fields. The
-  `cli.runner` and `cli.catalogSource` globals are gone; `NewRootCmdWith`
-  takes the service, and the TUI will take the same instance.
-- `Service.Plan` runs the nine guards and returns a built `agent.Command`
-  plus `[]Warning`. A `Warning` with a non-empty `Question` is one the
-  caller must confirm. Warnings collected before a failing guard are
-  returned alongside the error, not discarded — callers must render
-  `Plan.Warnings` before inspecting `err`; the obvious
-  `if err != nil { return err }` shape silently drops them.
-- Hard stops are typed errors carrying their data: `NotInstalledError.Hint`,
-  `UnknownModelError.Suggestions`, `UnsupportedAgentError.Reason`.
-- `Service.Launch` records the selection and hands off in one function, so
-  Landmine 5's ordering cannot be inverted by a call site. Its `warn`
-  callback exists because on Unix nothing after the handoff runs.
-- `launch.MergeFilters` bridges `config.Filters` and `openrouter.Filter`.
-  `models` reads persisted filters; only the TUI will write them.
+**13. `internal/tui` must not import `internal/cli`, `cobra`, or `pflag`.**
+`cli` imports `tui`. The cli edge is compiler-enforced today (it would be a
+cycle), but cobra is not — pinned by `TestTUIDependsOnNeitherCLINorCobra`.
 
-Still to do for the TUI itself:
+**14. `Args: cobra.NoArgs` on root is deliberate — don't delete it as
+redundant, and don't credit it with more than it does.** It states the
+no-positional-args constraint explicitly, in `internal/cli/root.go`. But
+cobra's `legacyArgs` fallback happens to reject an unrecognized subcommand
+here too, whenever the root command has subcommands and no parent — with or
+without `Args: cobra.NoArgs`, and adding a `RunE` does not change that.
+Verified against a standalone cobra v1.10.2 program, independently, twice.
+`TestUnknownSubcommandStillErrors` pins the *contract* (`openrouter-launch
+bogus` must error, not silently open the picker) but not this mechanism —
+the test passes with `NoArgs` present or removed. Keep `NoArgs`: it is the
+guard that does not depend on incidental properties of the command tree. Do
+not write documentation claiming it is the *only* thing preventing the
+silent-picker outcome; that claim is false and was disproved twice.
 
-1. Root gains a `RunE` for bare invocation.
-2. The `launch.ErrNoModel` branch in `resolveAndRun` becomes "open the
-   picker" instead of an error.
-3. `internal/tui` imports `internal/launch`. It must never import
-   `internal/cli` — `cli` imports `tui`, so that would be a cycle. This is
-   why the planner is its own package.
-4. Reconsider the shared mutable `&Claude{}` in the registry if a background
-   refresh goroutine ever races the `LookPath` field tests patch.
-5. `formatPrice` and `formatContext` (`internal/cli/models.go`) are the
-   model-table renderers the TUI will want; they are unexported in `cli`.
-   The TUI will either duplicate them or prompt a move — decide then, not
-   under time pressure.
-6. `fakeModels()` fixtures now exist in both `internal/cli` and
-   `internal/launch` test files and must be kept in sync by hand: several
-   tests in both packages depend on `openai/o1-mini` being the only entry
-   without tool support.
+**15. `openrouter-launch <agent>` (no `-m`) must exit 1 on a fatal plan
+error, not silently exit 0.** *(Was a real bug, found and fixed during the
+TUI build.)* With `Options.Agent` set, there is no root screen to fall back
+to. The `NotInstalledError`, `UnsupportedAgentError`, and
+`UnsupportedPlatformError` branches of `handlePlanError` used to dead-end
+through `rootOrDone()`, which returns `stateDone` with `Options.Agent` still
+set; `retreat()` turned that into `ErrCancelled`, and the CLI maps
+`ErrCancelled` to a silent exit 0. Result: `openrouter-launch claude` with
+Claude Code not installed reported success, while `openrouter-launch claude
+-m <slug>` exited 1 for the identical condition. Fixed by `noticeThenFatal`
+(`internal/tui/tui.go`): it shows the notice and, only when there is no root
+to return to, ends the session with the original error instead of
+`ErrCancelled`. `rootOrDone()` itself was deliberately left unchanged —
+`backState()` also reaches it on legitimate user-initiated retreats
+(declining the confirm screen, cancelling the API-key prompt), and those
+must keep exiting 0 because backing out really is a cancellation. The naive
+fix — routing those three branches through `rootOrDone()` unconditionally,
+or changing `rootOrDone()` itself — reintroduces this exact regression.
+
+## Phase 2 — complete
+
+The TUI ships: root screen (profiles + agents), model picker with
+type-to-search and four filters, `ctrl+s` profile save, API-key prompt,
+notice screens for the planner's typed errors.
+
+Two deliberate divergences from the original design doc, both recorded in
+`docs/superpowers/specs/2026-08-08-phase-2-tui-design.md`:
+
+- **Filters are on `alt+t/f/c/p`, not bare `t/f/c/$`.** The original key
+  table collided with type-to-search: `anthropic` contains a `t`. Key
+  handling switches on `msg.String()` so `"alt+t"` is a distinct case from
+  `"t"`; a mutation test pins that a chord can never fall through to the
+  search box.
+- **`go 1.22` became `go 1.24`**, which bubbletea requires from v1.3.8.
+
+**Deferred:** the background catalog refresh streaming into the live picker.
+The cache carries a 24h TTL, so a warm cache is already current and the only
+window it improves is the moment after expiry — for a goroutine, a channel,
+and re-ranking a list the user is navigating. Note that Phase 2 note 4, on
+the shared mutable `&Claude{}` in the registry, was conditional on that
+goroutine and therefore does not apply.
 
 ## Phase 3+ — more agents
 
@@ -216,9 +250,10 @@ stated reason.
   binary on Windows.
 - **10 of 17 deferred Minor findings** were triaged as defer-or-drop with reasons,
   recorded in the ledger. Seven were fixed.
-- **`go 1.22`** in `go.mod` is a deliberate compatibility floor, not an oversight.
-  Nothing in the code needs past it (`slices` is 1.21). The toolchain that builds
-  it is whatever the user has — 1.26.5 today. Bump only when a feature requires it.
+- **`go 1.24`** in `go.mod` is bubbletea's floor (from v1.3.8), not an oversight
+  — see "Phase 2 — complete" above. It replaced Phase 1's deliberate 1.22 floor;
+  nothing else in the code needs past 1.24. The toolchain that builds it is
+  whatever the user has — 1.26.5 today. Bump only when a feature requires it.
 - No `README.md` yet.
 - No CI. No release/packaging story.
 
