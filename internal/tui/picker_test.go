@@ -244,24 +244,69 @@ func TestPickerCursorStopsAtBothEnds(t *testing.T) {
 	}
 }
 
+// The whole-view blob is not safe to assert against here: the key footer
+// names every filter unconditionally ("alt+t tools · alt+f free · ..."), and
+// this fixture's model IDs are short enough to render whole in every row, so
+// "tools" and "claude" both appear regardless of the picker's actual filter
+// or title state. Anchor on the specific line each fact belongs to instead.
 func TestPickerViewNamesTheAgentTheFiltersAndTheCounts(t *testing.T) {
 	m := press(t, pickerFixture(), altKey('t'))
-	got := m.View()
-	for _, want := range []string{"claude", "tools", "2 of 3"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("View = %q, missing %q", got, want)
+	lines := strings.Split(m.View(), "\n")
+
+	title := lines[0]
+	if !strings.Contains(title, "claude") {
+		t.Errorf("title line = %q, missing the agent's display name", title)
+	}
+
+	// Found by content rather than a fixed index: more robust to layout
+	// changes elsewhere in the view, and "of 3" only ever appears on the
+	// status line, never in the footer or a model row.
+	var status string
+	for _, line := range lines {
+		if strings.Contains(line, "of 3") {
+			status = line
+			break
 		}
+	}
+	if status == "" {
+		t.Fatalf("View has no status line containing %q:\n%s", "of 3", m.View())
+	}
+	if !strings.Contains(status, "tools") {
+		t.Errorf("status line = %q, missing the active filter label %q", status, "tools")
+	}
+	if !strings.Contains(status, "2 of 3") {
+		t.Errorf("status line = %q, missing %q", status, "2 of 3")
 	}
 }
 
+// Two distinct descriptions, on two different models, with the cursor moved
+// between them: a hard-coded visible[0] lookup (instead of following
+// m.cursor) would still pass a version of this test that only checked the
+// description present at rest, so each half also asserts the OTHER model's
+// description is absent.
 func TestPickerViewShowsTheHighlightedModelsDescription(t *testing.T) {
 	models := ortest.Models()
-	models[0].Description = "A distinctive description string"
+	models[0].Description = "Aardvark marker for the first model"
+	models[1].Description = "Bumblebee marker for the second model"
 	m := newPickerModel(pickerInput{
 		Agent: stubSpec("claude"), Models: models, Height: 24, Width: 100,
 	})
-	if !strings.Contains(m.View(), "A distinctive description") {
-		t.Errorf("View does not show the highlighted description:\n%s", m.View())
+
+	view := m.View()
+	if !strings.Contains(view, "Aardvark marker") {
+		t.Errorf("View does not show the highlighted model's description:\n%s", view)
+	}
+	if strings.Contains(view, "Bumblebee marker") {
+		t.Errorf("View shows the second model's description before it is highlighted:\n%s", view)
+	}
+
+	m = press(t, m, typeKey(tea.KeyDown))
+	view = m.View()
+	if !strings.Contains(view, "Bumblebee marker") {
+		t.Errorf("View does not follow the cursor to the second model's description:\n%s", view)
+	}
+	if strings.Contains(view, "Aardvark marker") {
+		t.Errorf("View still shows the first model's description after the cursor moved:\n%s", view)
 	}
 }
 
