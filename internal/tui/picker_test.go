@@ -197,7 +197,7 @@ func TestPickerCursorClampsWhenTheListNarrows(t *testing.T) {
 func TestPickerFilterToggleKeepsTheHighlightedModel(t *testing.T) {
 	m := press(t, pickerFixture(), typeKey(tea.KeyDown)) // qwen, which is free
 	before := m.visible[m.cursor].ID
-	m = press(t, m, altKey('t'))                         // qwen supports tools, so it survives
+	m = press(t, m, altKey('t')) // qwen supports tools, so it survives
 	if got := m.visible[m.cursor].ID; got != before {
 		t.Errorf("highlighted %q after the toggle, want %q", got, before)
 	}
