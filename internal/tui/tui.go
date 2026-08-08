@@ -565,8 +565,3 @@ func (s *session) persistFilters() error {
 	cfg.Filters = next
 	return config.Save(cfg)
 }
-
-// liveScreens wires the screens struct to real bubbletea programs.
-// TASK 9 PLACEHOLDER: this stub only exists so internal/tui compiles before
-// Task 9 adds program.go. Delete it there.
-func liveScreens() (screens, error) { return screens{}, errors.New("not implemented") }
