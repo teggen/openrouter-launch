@@ -17,16 +17,15 @@ func TestBareInvocationOpensTheTUI(t *testing.T) {
 		t.Fatalf("bare invocation: %v", err)
 	}
 	if h.tuiCalls != 1 {
-		t.Errorf("TUI opened %d times, want 1", h.tuiCalls)
+		t.Fatalf("TUI opened %d times, want 1", h.tuiCalls)
 	}
 	if h.tuiOpts[0].Agent != nil {
 		t.Error("bare invocation preselected an agent; it should start at the root screen")
 	}
 }
 
-// Once root has a RunE, cobra routes unrecognized subcommands into it. Without
-// Args: cobra.NoArgs, `openrouter-launch bogus` would silently open the
-// picker instead of reporting a typo.
+// A typo must report itself rather than opening the picker: `openrouter-launch
+// bogus` is an unknown-command error, not a silent route into the TUI.
 func TestUnknownSubcommandStillErrors(t *testing.T) {
 	h := newHarness(t)
 	out, err := h.exec("bogus")
@@ -59,6 +58,9 @@ func TestLaunchPassesExtraArgsThroughToTheTUI(t *testing.T) {
 	if _, err := h.exec("claude", "--", "--resume"); err != nil {
 		t.Fatalf("exec: %v", err)
 	}
+	if h.tuiCalls != 1 {
+		t.Fatalf("TUI opened %d times, want 1", h.tuiCalls)
+	}
 	got := h.tuiOpts[0].ExtraArgs
 	if len(got) != 1 || got[0] != "--resume" {
 		t.Errorf("ExtraArgs = %v, want [--resume]", got)
@@ -70,6 +72,9 @@ func TestGlobalFlagsReachTheTUI(t *testing.T) {
 	if _, err := h.exec("--refresh", "--yes"); err != nil {
 		t.Fatalf("exec: %v", err)
 	}
+	if h.tuiCalls != 1 {
+		t.Fatalf("TUI opened %d times, want 1", h.tuiCalls)
+	}
 	if !h.tuiOpts[0].Refresh {
 		t.Error("--refresh did not reach the TUI")
 	}
@@ -78,7 +83,9 @@ func TestGlobalFlagsReachTheTUI(t *testing.T) {
 	}
 }
 
-// Cancelling is not a failure: it must exit 0 with nothing printed.
+// Cancelling is not a failure: it must exit 0 with nothing printed, and it
+// must still have gone through the TUI — this would also pass if RunE
+// returned nil without ever invoking it.
 func TestCancellingTheTUIExitsCleanly(t *testing.T) {
 	h := newHarness(t)
 	h.tuiErr = tui.ErrCancelled
@@ -89,6 +96,9 @@ func TestCancellingTheTUIExitsCleanly(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != "" {
 		t.Errorf("cancelling printed %q, want nothing", out)
+	}
+	if h.tuiCalls != 1 {
+		t.Errorf("TUI opened %d times, want 1", h.tuiCalls)
 	}
 }
 

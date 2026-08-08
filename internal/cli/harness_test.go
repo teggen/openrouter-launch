@@ -50,6 +50,10 @@ func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
 	t.Setenv("XDG_CACHE_HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
+	// tuiErr defaults to ErrCancelled, not nil: a test that reaches the TUI
+	// without configuring tuiPlan would otherwise have handoff call Launch on
+	// a zero-value launch.Plan, and recordSelection would dereference
+	// p.Spec.Name and panic. Cancelling is the safe default outcome.
 	h := &harness{tuiErr: tui.ErrCancelled}
 	h.svc = &launch.Service{
 		Catalog: catalog,

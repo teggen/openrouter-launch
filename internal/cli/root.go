@@ -35,7 +35,11 @@ func NewRootCmd() *cobra.Command {
 	return NewRootCmdWith(&launch.Service{})
 }
 
-// NewRootCmdWith builds the command tree against the given service.
+// NewRootCmdWith builds the command tree against the given service, so the
+// CLI and the TUI session it opens (see runTUI's tui.Options.Service) share
+// one *launch.Service instance rather than each constructing its own. It is
+// a constructor rather than a package-level variable so tests get an
+// isolated command tree, wired to their own service, on every call.
 func NewRootCmdWith(svc *launch.Service) *cobra.Command {
 	return newRootCmd(svc, tui.Run)
 }
@@ -56,9 +60,11 @@ func newRootCmd(svc *launch.Service, openTUI tuiFunc) *cobra.Command {
 		Long: "openrouter-launch picks an OpenRouter model and starts a coding " +
 			"agent configured to use it, without modifying the agent's own configuration.",
 		SilenceUsage: true,
-		// NoArgs is required, not cosmetic. Once root has a RunE, cobra
-		// routes an unrecognized subcommand into it instead of erroring, so
-		// `openrouter-launch bogus` would silently open the picker.
+		// NoArgs states the constraint explicitly: root takes no positional
+		// arguments. Cobra's legacyArgs fallback happens to reject an
+		// unrecognized subcommand here too (root has subcommands and no
+		// parent), but that fallback's applicability depends on those
+		// incidental properties, so this guard does not rely on it.
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runTUI(cmd, a, nil, nil)
