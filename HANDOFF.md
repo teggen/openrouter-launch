@@ -36,14 +36,24 @@ principle** and it is the design's central claim — see Landmine 6.
 Working commands, all smoke-tested against the live API:
 
 ```bash
-openrouter-launch                     # bare invocation: opens the root screen
-openrouter-launch claude              # no -m: straight to the picker
 openrouter-launch agents
 openrouter-launch models --tools --free --provider anthropic
 openrouter-launch models --min-context 200000 --max-price 5
 openrouter-launch claude -m anthropic/claude-opus-4.6 -- --resume
 openrouter-launch profile add --name opus-cc --agent claude --model anthropic/claude-opus-4.6
 openrouter-launch profile list|launch|rm|rename
+```
+
+Two more commands open interactive bubbletea screens and are **not** covered
+by that smoke-testing. This environment has no TTY, and `liveScreens()`
+(`internal/tui/program.go`) checks `isTTY()` before any catalog call — so
+both were only ever confirmed to refuse cleanly with no TTY attached. They
+never made an API call, and their interactive behavior (the picker, its
+filters, profile save) has not been driven by a human yet:
+
+```bash
+openrouter-launch                     # bare invocation: opens the root screen
+openrouter-launch claude              # no -m: straight to the picker
 ```
 
 ## Where things are
@@ -228,9 +238,13 @@ Two deliberate divergences from the original design doc, both recorded in
 **Deferred:** the background catalog refresh streaming into the live picker.
 The cache carries a 24h TTL, so a warm cache is already current and the only
 window it improves is the moment after expiry — for a goroutine, a channel,
-and re-ranking a list the user is navigating. Note that Phase 2 note 4, on
-the shared mutable `&Claude{}` in the registry, was conditional on that
-goroutine and therefore does not apply.
+and re-ranking a list the user is navigating. If this is ever built, the
+registry's shared mutable `&Claude{}` needs reconsidering: a background
+refresh goroutine could race the `LookPath` field that tests patch (see
+Landmine 8, on `Claude.findPath`'s fallback paths and the requirement to set
+`HOME` to a temp dir so tests can make the binary look absent). That concern
+does not apply today, precisely because the refresh goroutine was never
+built.
 
 ## Phase 3+ — more agents
 
@@ -245,6 +259,13 @@ stated reason.
 
 ## Open items
 
+- **The interactive TUI has never been driven by a human.** `openrouter-launch`
+  (bare) and `openrouter-launch claude` (no `-m`) have only ever been run headless,
+  with no TTY attached, so `liveScreens()` refused before making a catalog call —
+  see "Working commands" above. Still unverified by a human: the root screen
+  (profiles + agents), the picker's type-to-search and `alt+t/f/c/p` filter
+  chords, `ctrl+s` profile save, `esc` navigation back out of a screen, and
+  whether filter state actually persists to `config.json` on exit.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
