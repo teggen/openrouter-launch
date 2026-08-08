@@ -30,12 +30,39 @@ func fakeModels() []openrouter.Model {
 
 func TestModelsCommandListsAll(t *testing.T) {
 	h := newHarness(t)
-	got := h.run(t, "models")
+	got := h.run(t, "models", "--tools=false")
 
 	for _, id := range []string{"anthropic/claude-opus-4.6", "qwen/qwen3-coder:free", "openai/o1-mini"} {
 		if !strings.Contains(got, id) {
 			t.Errorf("output missing %s:\n%s", id, got)
 		}
+	}
+}
+
+func TestModelsCommandDefaultsToToolCapableModels(t *testing.T) {
+	h := newHarness(t)
+	got := h.run(t, "models")
+
+	// config.defaults() sets ToolsOnly:true because a coding agent without
+	// tool calling is unusable, and openai/o1-mini is the only fixture model
+	// without tool support.
+	if strings.Contains(got, "openai/o1-mini") {
+		t.Errorf("bare `models` should honor the saved tools-only default:\n%s", got)
+	}
+	if !strings.Contains(got, "anthropic/claude-opus-4.6") {
+		t.Errorf("tool-capable models should still be listed:\n%s", got)
+	}
+}
+
+func TestModelsCommandExplicitToolsFalseOverridesSavedDefault(t *testing.T) {
+	h := newHarness(t)
+	got := h.run(t, "models", "--tools=false")
+
+	// --tools=false and an absent --tools are both false by value; only the
+	// Changed() check distinguishes them. If that check is dropped, the
+	// persisted true wins and o1-mini stays hidden.
+	if !strings.Contains(got, "openai/o1-mini") {
+		t.Errorf("--tools=false should override the saved ToolsOnly:true:\n%s", got)
 	}
 }
 
@@ -65,7 +92,7 @@ func TestModelsCommandFreeFilter(t *testing.T) {
 
 func TestModelsCommandProviderFilter(t *testing.T) {
 	h := newHarness(t)
-	got := h.run(t, "models", "--provider", "openai")
+	got := h.run(t, "models", "--provider", "openai", "--tools=false")
 
 	if !strings.Contains(got, "openai/o1-mini") {
 		t.Errorf("--provider dropped the match:\n%s", got)
@@ -78,9 +105,12 @@ func TestModelsCommandProviderFilter(t *testing.T) {
 	}
 }
 
+// --tools=false matters here even though the assertion is about absence:
+// without it, o1-mini would be filtered out by the tools default and this
+// test would pass whether or not the min-context guard works.
 func TestModelsCommandMinContextFilter(t *testing.T) {
 	h := newHarness(t)
-	got := h.run(t, "models", "--min-context", "200000")
+	got := h.run(t, "models", "--min-context", "200000", "--tools=false")
 
 	if strings.Contains(got, "openai/o1-mini") {
 		t.Errorf("--min-context should exclude the 128k model:\n%s", got)
@@ -95,7 +125,7 @@ func TestModelsCommandMinContextFilter(t *testing.T) {
 
 func TestModelsCommandMaxPriceFilter(t *testing.T) {
 	h := newHarness(t)
-	got := h.run(t, "models", "--max-price", "5")
+	got := h.run(t, "models", "--max-price", "5", "--tools=false")
 
 	if strings.Contains(got, "anthropic/claude-opus-4.6") {
 		t.Errorf("--max-price should exclude the $75 model:\n%s", got)

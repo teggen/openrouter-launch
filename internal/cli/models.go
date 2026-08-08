@@ -7,18 +7,28 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 func newModelsCmd(a *app) *cobra.Command {
-	var filter openrouter.Filter
+	var flagFilter openrouter.Filter
 
 	cmd := &cobra.Command{
 		Use:   "models [search]",
 		Short: "List OpenRouter models",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			cfg, err := config.Load()
+			if err != nil {
+				return err
+			}
+
+			// Persisted filters are the baseline; a flag the user actually
+			// typed wins. Changed() is what makes an explicit --tools=false
+			// distinguishable from an absent --tools.
+			filter := launch.MergeFilters(cfg.Filters, flagFilter, cmd.Flags().Changed)
 			if len(args) == 1 {
 				filter.Search = args[0]
 			}
@@ -53,11 +63,15 @@ func newModelsCmd(a *app) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&filter.ToolsOnly, "tools", false, "only models supporting tool calling")
-	cmd.Flags().BoolVar(&filter.FreeOnly, "free", false, "only free models")
-	cmd.Flags().StringVar(&filter.Provider, "provider", "", "only models from this provider (e.g. anthropic)")
-	cmd.Flags().IntVar(&filter.MinContext, "min-context", 0, "minimum context window in tokens")
-	cmd.Flags().Float64Var(&filter.MaxPrice, "max-price", 0, "maximum USD per million completion tokens")
+	cmd.Flags().BoolVar(&flagFilter.ToolsOnly, launch.FlagTools, false,
+		"only models supporting tool calling (defaults to the saved filter)")
+	cmd.Flags().BoolVar(&flagFilter.FreeOnly, launch.FlagFree, false, "only free models")
+	cmd.Flags().StringVar(&flagFilter.Provider, "provider", "",
+		"only models from this provider (e.g. anthropic)")
+	cmd.Flags().IntVar(&flagFilter.MinContext, launch.FlagMinContext, 0,
+		"minimum context window in tokens")
+	cmd.Flags().Float64Var(&flagFilter.MaxPrice, launch.FlagMaxPrice, 0,
+		"maximum USD per million completion tokens")
 
 	return cmd
 }
