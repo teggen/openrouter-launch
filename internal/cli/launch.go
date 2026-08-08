@@ -17,7 +17,7 @@ import (
 var runner = agent.Run
 
 // newLaunchCmds builds one subcommand per registered agent.
-func newLaunchCmds(global *globalFlags) []*cobra.Command {
+func newLaunchCmds(a *app) []*cobra.Command {
 	specs := agent.List()
 	cmds := make([]*cobra.Command, 0, len(specs))
 
@@ -31,7 +31,7 @@ func newLaunchCmds(global *globalFlags) []*cobra.Command {
 			Aliases: spec.Aliases,
 			Args:    cobra.ArbitraryArgs,
 			RunE: func(cmd *cobra.Command, args []string) error {
-				return resolveAndRun(cmd, spec, modelID, args, global)
+				return resolveAndRun(cmd, a, spec, modelID, args)
 			},
 		}
 		cmd.Flags().StringVarP(&modelID, "model", "m", "", "OpenRouter model slug (required)")
@@ -49,7 +49,7 @@ func checkAgentSupported(spec *agent.Spec) error {
 }
 
 // resolveAndRun validates the request and hands off to the agent.
-func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraArgs []string, global *globalFlags) error {
+func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string, extraArgs []string) error {
 	if err := checkAgentSupported(spec); err != nil {
 		return err
 	}
@@ -68,7 +68,7 @@ func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraAr
 		return fmt.Errorf("%s is not installed.\n%s", spec.Launcher.DisplayName(), installable.InstallHint())
 	}
 
-	snap, err := loadCatalog(cmd.Context(), global.refresh, cmd.ErrOrStderr())
+	snap, err := loadCatalog(cmd.Context(), a.svc, a.flags.refresh, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func resolveAndRun(cmd *cobra.Command, spec *agent.Spec, modelID string, extraAr
 				return err
 			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", err)
-			ok, cerr := confirm(cmd, global, "Launch anyway?")
+			ok, cerr := confirm(cmd, a.flags, "Launch anyway?")
 			if cerr != nil {
 				return cerr
 			}

@@ -9,7 +9,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
-func newModelsCmd(global *globalFlags) *cobra.Command {
+func newModelsCmd(a *app) *cobra.Command {
 	var filter openrouter.Filter
 
 	cmd := &cobra.Command{
@@ -21,7 +21,7 @@ func newModelsCmd(global *globalFlags) *cobra.Command {
 				filter.Search = args[0]
 			}
 
-			snap, err := loadCatalog(cmd.Context(), global.refresh, cmd.ErrOrStderr())
+			snap, err := loadCatalog(cmd.Context(), a.svc, a.flags.refresh, cmd.ErrOrStderr())
 			if err != nil {
 				return err
 			}

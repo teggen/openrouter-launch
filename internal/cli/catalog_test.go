@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
@@ -62,12 +63,10 @@ func TestLoadCatalogWarnsOnProvidedWriterWhenStale(t *testing.T) {
 	path := cachePathForTest(t)
 	writeCacheFileForTest(t, path, time.Now().Add(-48*time.Hour)) // older than DefaultTTL
 
-	prev := catalogSource
-	catalogSource = erroringCatalog{}
-	t.Cleanup(func() { catalogSource = prev })
+	svc := &launch.Service{Catalog: erroringCatalog{}}
 
 	var warnings bytes.Buffer
-	snap, err := loadCatalog(context.Background(), false, &warnings)
+	snap, err := loadCatalog(context.Background(), svc, false, &warnings)
 	if err != nil {
 		t.Fatalf("loadCatalog: %v", err)
 	}
@@ -86,12 +85,11 @@ func TestLoadCatalogWritesNothingWhenFresh(t *testing.T) {
 	path := cachePathForTest(t)
 	writeCacheFileForTest(t, path, time.Now()) // well within DefaultTTL
 
-	prev := catalogSource
-	catalogSource = erroringCatalog{} // must not even be consulted for a fresh cache
-	t.Cleanup(func() { catalogSource = prev })
+	// erroringCatalog must not even be consulted for a fresh cache.
+	svc := &launch.Service{Catalog: erroringCatalog{}}
 
 	var warnings bytes.Buffer
-	snap, err := loadCatalog(context.Background(), false, &warnings)
+	snap, err := loadCatalog(context.Background(), svc, false, &warnings)
 	if err != nil {
 		t.Fatalf("loadCatalog: %v", err)
 	}

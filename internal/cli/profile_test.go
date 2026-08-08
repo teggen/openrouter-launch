@@ -11,12 +11,12 @@ import (
 )
 
 func TestProfileAddAndList(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
 
-	got := runCmd(t, "profile", "list")
+	got := h.run(t, "profile", "list")
 	if !strings.Contains(got, "opus-cc") {
 		t.Errorf("list output missing the profile:\n%s", got)
 	}
@@ -26,11 +26,9 @@ func TestProfileAddAndList(t *testing.T) {
 }
 
 func TestProfileAddRejectsUnknownAgent(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "add", "--name", "x", "--agent", "nope", "--model", "a/b"})
 
 	err := root.Execute()
@@ -43,14 +41,12 @@ func TestProfileAddRejectsUnknownAgent(t *testing.T) {
 }
 
 func TestProfileAddRejectsDuplicate(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6"})
 
@@ -64,11 +60,11 @@ func TestProfileAddRejectsDuplicate(t *testing.T) {
 }
 
 func TestProfileLaunch(t *testing.T) {
-	got := setupLaunch(t)
+	h, got := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
-	runCmd(t, "profile", "launch", "opus-cc")
+	h.run(t, "profile", "launch", "opus-cc")
 
 	if got.Path != "/usr/local/bin/claude" {
 		t.Errorf("Path = %q, want the claude binary", got.Path)
@@ -79,11 +75,11 @@ func TestProfileLaunch(t *testing.T) {
 }
 
 func TestProfileLaunchPassesStoredArgs(t *testing.T) {
-	got := setupLaunch(t)
+	h, got := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6", "--", "--resume")
-	runCmd(t, "profile", "launch", "opus-cc")
+	h.run(t, "profile", "launch", "opus-cc")
 
 	if len(got.Args) != 3 || got.Args[2] != "--resume" {
 		t.Errorf("Args = %v, want the stored --resume", got.Args)
@@ -91,11 +87,9 @@ func TestProfileLaunchPassesStoredArgs(t *testing.T) {
 }
 
 func TestProfileLaunchUnknown(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "launch", "nope"})
 
 	err := root.Execute()
@@ -112,26 +106,26 @@ func TestProfileLaunchUnknown(t *testing.T) {
 }
 
 func TestProfileRemove(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
-	runCmd(t, "profile", "rm", "opus-cc")
+	h.run(t, "profile", "rm", "opus-cc")
 
-	got := runCmd(t, "profile", "list")
+	got := h.run(t, "profile", "list")
 	if strings.Contains(got, "opus-cc") {
 		t.Errorf("profile still listed after removal:\n%s", got)
 	}
 }
 
 func TestProfileRename(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	runCmd(t, "profile", "add", "--name", "opus-cc",
+	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
-	runCmd(t, "profile", "rename", "opus-cc", "flagship")
+	h.run(t, "profile", "rename", "opus-cc", "flagship")
 
-	got := runCmd(t, "profile", "list")
+	got := h.run(t, "profile", "list")
 	if !strings.Contains(got, "flagship") {
 		t.Errorf("renamed profile missing:\n%s", got)
 	}
@@ -141,9 +135,9 @@ func TestProfileRename(t *testing.T) {
 }
 
 func TestProfileListEmpty(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
-	got := runCmd(t, "profile", "list")
+	got := h.run(t, "profile", "list")
 	if !strings.Contains(strings.ToLower(got), "no profiles") {
 		t.Errorf("expected an empty-state message, got:\n%s", got)
 	}

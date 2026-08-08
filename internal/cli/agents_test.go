@@ -1,26 +1,12 @@
 package cli
 
 import (
-	"bytes"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 )
-
-func runCmd(t *testing.T, args ...string) string {
-	t.Helper()
-	var out bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
-	root.SetArgs(args)
-	if err := root.Execute(); err != nil {
-		t.Fatalf("execute %v: %v", args, err)
-	}
-	return out.String()
-}
 
 func claudeStatusField(t *testing.T, out string) string {
 	t.Helper()
@@ -39,7 +25,8 @@ func claudeStatusField(t *testing.T, out string) string {
 }
 
 func TestAgentsCommandListsClaude(t *testing.T) {
-	got := runCmd(t, "agents")
+	h := newHarness(t)
+	got := h.run(t, "agents")
 	if !strings.Contains(got, "claude") {
 		t.Errorf("output missing claude:\n%s", got)
 	}
@@ -58,7 +45,8 @@ func TestAgentsCommandShowsInstalledWhenBinaryFound(t *testing.T) {
 	claude.LookPath = func(string) (string, error) { return "/usr/local/bin/claude", nil }
 	t.Cleanup(func() { claude.LookPath = prev })
 
-	got := runCmd(t, "agents")
+	h := newHarness(t)
+	got := h.run(t, "agents")
 	status := claudeStatusField(t, got)
 	if status != "installed" {
 		t.Errorf("expected status %q, got %q", "installed", status)
@@ -76,7 +64,8 @@ func TestAgentsCommandShowsNotInstalledWhenBinaryNotFound(t *testing.T) {
 	t.Cleanup(func() { claude.LookPath = prev })
 	t.Setenv("HOME", t.TempDir())
 
-	got := runCmd(t, "agents")
+	h := newHarness(t)
+	got := h.run(t, "agents")
 	status := claudeStatusField(t, got)
 	if status != "not installed" {
 		t.Errorf("expected status %q, got %q", "not installed", status)

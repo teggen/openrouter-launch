@@ -11,7 +11,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/config"
 )
 
-func newProfileCmd(global *globalFlags) *cobra.Command {
+func newProfileCmd(a *app) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "profile",
 		Short: "Manage saved agent + model profiles",
@@ -19,7 +19,7 @@ func newProfileCmd(global *globalFlags) *cobra.Command {
 	cmd.AddCommand(
 		newProfileListCmd(),
 		newProfileAddCmd(),
-		newProfileLaunchCmd(global),
+		newProfileLaunchCmd(a),
 		newProfileRemoveCmd(),
 		newProfileRenameCmd(),
 	)
@@ -99,7 +99,7 @@ func newProfileAddCmd() *cobra.Command {
 	return cmd
 }
 
-func newProfileLaunchCmd(global *globalFlags) *cobra.Command {
+func newProfileLaunchCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "launch <name>",
 		Short: "Launch a saved profile",
@@ -117,7 +117,7 @@ func newProfileLaunchCmd(global *globalFlags) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return resolveAndRun(cmd, spec, profile.Model, profile.Args, global)
+			return resolveAndRun(cmd, a, spec, profile.Model, profile.Args)
 		},
 	}
 }

@@ -3,6 +3,8 @@ package cli
 
 import (
 	"github.com/spf13/cobra"
+
+	"github.com/teggen/openrouter-launch/internal/launch"
 )
 
 // globalFlags holds values shared by every subcommand.
@@ -11,10 +13,24 @@ type globalFlags struct {
 	yes     bool
 }
 
-// NewRootCmd builds the command tree. It is a constructor rather than a
-// package-level variable so tests get an isolated tree per run.
+// app is what every subcommand needs: the shared launch service and the
+// global flag values.
+type app struct {
+	svc   *launch.Service
+	flags *globalFlags
+}
+
+// NewRootCmd builds the command tree against the live OpenRouter API.
 func NewRootCmd() *cobra.Command {
-	flags := &globalFlags{}
+	return NewRootCmdWith(&launch.Service{})
+}
+
+// NewRootCmdWith builds the command tree against the given service. It is a
+// constructor rather than a package-level variable so tests get an isolated
+// tree per run, and it takes the service as an argument rather than reading
+// a package global so that a Phase 2 TUI can share the same instance.
+func NewRootCmdWith(svc *launch.Service) *cobra.Command {
+	a := &app{svc: svc, flags: &globalFlags{}}
 
 	root := &cobra.Command{
 		Use:   "openrouter-launch",
@@ -24,15 +40,15 @@ func NewRootCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 
-	root.PersistentFlags().BoolVar(&flags.refresh, "refresh", false,
+	root.PersistentFlags().BoolVar(&a.flags.refresh, "refresh", false,
 		"bypass the cached model catalog and fetch a fresh copy")
-	root.PersistentFlags().BoolVarP(&flags.yes, "yes", "y", false,
+	root.PersistentFlags().BoolVarP(&a.flags.yes, "yes", "y", false,
 		"skip confirmation prompts")
 
 	root.AddCommand(newAgentsCmd())
-	root.AddCommand(newModelsCmd(flags))
-	root.AddCommand(newProfileCmd(flags))
-	for _, cmd := range newLaunchCmds(flags) {
+	root.AddCommand(newModelsCmd(a))
+	root.AddCommand(newProfileCmd(a))
+	for _, cmd := range newLaunchCmds(a) {
 		root.AddCommand(cmd)
 	}
 

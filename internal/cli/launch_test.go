@@ -82,17 +82,17 @@ func stubClaudePath(t *testing.T) {
 	t.Cleanup(func() { claude.LookPath = prev })
 }
 
-func setupLaunch(t *testing.T) *agent.Command {
+func setupLaunch(t *testing.T) (*harness, *agent.Command) {
 	t.Helper()
-	useFakeCatalog(t)
+	h := newHarness(t)
 	stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-	return captureRun(t)
+	return h, captureRun(t)
 }
 
 func TestLaunchBuildsCommand(t *testing.T) {
-	got := setupLaunch(t)
-	runCmd(t, "claude", "-m", "anthropic/claude-opus-4.6")
+	h, got := setupLaunch(t)
+	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
 
 	if got.Path != "/usr/local/bin/claude" {
 		t.Errorf("Path = %q", got.Path)
@@ -113,8 +113,8 @@ func TestLaunchBuildsCommand(t *testing.T) {
 }
 
 func TestLaunchPassesExtraArgsAfterDoubleDash(t *testing.T) {
-	got := setupLaunch(t)
-	runCmd(t, "claude", "-m", "anthropic/claude-opus-4.6", "--", "--resume")
+	h, got := setupLaunch(t)
+	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6", "--", "--resume")
 
 	if len(got.Args) != 3 || got.Args[2] != "--resume" {
 		t.Errorf("Args = %v, want the trailing --resume", got.Args)
@@ -122,8 +122,8 @@ func TestLaunchPassesExtraArgsAfterDoubleDash(t *testing.T) {
 }
 
 func TestLaunchRecordsLastSelection(t *testing.T) {
-	setupLaunch(t)
-	runCmd(t, "claude", "-m", "anthropic/claude-opus-4.6")
+	h, _ := setupLaunch(t)
+	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
 
 	cfg := mustLoadConfig(t)
 	if cfg.LastAgent != "claude" {
@@ -141,7 +141,7 @@ func TestLaunchRecordsLastSelection(t *testing.T) {
 // bug wouldn't otherwise be observable; this test inspects the config from
 // inside the runner callback itself, before resolveAndRun continues.
 func TestLaunchSavesSelectionBeforeHandoff(t *testing.T) {
-	useFakeCatalog(t)
+	h := newHarness(t)
 	stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 
@@ -157,7 +157,7 @@ func TestLaunchSavesSelectionBeforeHandoff(t *testing.T) {
 	}
 	t.Cleanup(func() { runner = prev })
 
-	runCmd(t, "claude", "-m", "anthropic/claude-opus-4.6")
+	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
 
 	if !savedBeforeHandoff {
 		t.Error("expected the last selection to be persisted before control reaches runner")
@@ -165,15 +165,13 @@ func TestLaunchSavesSelectionBeforeHandoff(t *testing.T) {
 }
 
 func TestLaunchUnknownModelSuggests(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
 	// "anthropic/claude-opus" (missing the version suffix) is not an exact
 	// slug match, but it is a substring of anthropic/claude-opus-4.6, which
 	// is what openrouter.Suggest's substring matching requires to surface it.
 	var out bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
+	root := h.root(&out)
 	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus"})
 
 	err := root.Execute()
@@ -186,12 +184,10 @@ func TestLaunchUnknownModelSuggests(t *testing.T) {
 }
 
 func TestLaunchRequiresModelFlag(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
 	var out bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
+	root := h.root(&out)
 	root.SetArgs([]string{"claude"})
 
 	err := root.Execute()
@@ -245,18 +241,16 @@ func TestCheckAgentSupported(t *testing.T) {
 // only has claude, which is always Status.Supported and never implements
 // PlatformSupported.
 func TestResolveAndRunUnsupportedAgent(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 	spec := &agent.Spec{
 		Name:     "nope",
 		Launcher: &fakeLauncher{name: "nope", displayName: "Nope"},
 		Status:   agent.Status{Supported: false, Reason: "talks to its own backend"},
 	}
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 
-	err := resolveAndRun(root, spec, "anthropic/claude-opus-4.6", nil, &globalFlags{})
+	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
 	if err == nil {
 		t.Fatal("expected an error for an unsupported agent")
 	}
@@ -266,7 +260,7 @@ func TestResolveAndRunUnsupportedAgent(t *testing.T) {
 }
 
 func TestResolveAndRunUnsupportedPlatform(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 	spec := &agent.Spec{
 		Name: "platform-agent",
 		Launcher: &fakePlatformLauncher{
@@ -275,11 +269,9 @@ func TestResolveAndRunUnsupportedPlatform(t *testing.T) {
 		Status: agent.Status{Supported: true},
 	}
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 
-	err := resolveAndRun(root, spec, "anthropic/claude-opus-4.6", nil, &globalFlags{})
+	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
 	if err == nil {
 		t.Fatal("expected an error for an unsupported platform")
 	}
@@ -289,7 +281,7 @@ func TestResolveAndRunUnsupportedPlatform(t *testing.T) {
 }
 
 func TestResolveAndRunPropagatesGenuineCheckModelError(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 	wantErr := errors.New("catalog service unreachable")
 	spec := &agent.Spec{
 		Name: "picky",
@@ -301,11 +293,9 @@ func TestResolveAndRunPropagatesGenuineCheckModelError(t *testing.T) {
 	}
 
 	var stderr bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&stderr)
+	root := h.root(&stderr)
 
-	err := resolveAndRun(root, spec, "anthropic/claude-opus-4.6", nil, &globalFlags{})
+	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
 	if !errors.Is(err, wantErr) {
 		t.Fatalf("expected the genuine CheckModel error to propagate unchanged, got: %v", err)
 	}
@@ -317,13 +307,11 @@ func TestResolveAndRunPropagatesGenuineCheckModelError(t *testing.T) {
 }
 
 func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
-	got := setupLaunch(t)
+	h, got := setupLaunch(t)
 
 	// --yes accepts the compatibility warning without prompting.
 	var stderr bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&stderr)
+	root := h.root(&stderr)
 	root.SetArgs([]string{"claude", "-m", "qwen/qwen3-coder:free", "--yes"})
 
 	if err := root.Execute(); err != nil {
@@ -342,12 +330,10 @@ func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 }
 
 func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
-	got := setupLaunch(t)
+	h, got := setupLaunch(t)
 
 	var stderr bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&stderr)
+	root := h.root(&stderr)
 	root.SetIn(strings.NewReader("y\n"))
 	root.SetArgs([]string{"claude", "-m", "qwen/qwen3-coder:free"})
 
@@ -366,11 +352,9 @@ func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
 }
 
 func TestLaunchIncompatibleModelDeclinedCancels(t *testing.T) {
-	got := setupLaunch(t)
+	h, got := setupLaunch(t)
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("n\n"))
 	root.SetArgs([]string{"claude", "-m", "qwen/qwen3-coder:free"})
 
@@ -384,9 +368,9 @@ func TestLaunchIncompatibleModelDeclinedCancels(t *testing.T) {
 }
 
 func TestConfirmYesFlagSkipsPrompt(t *testing.T) {
-	root := NewRootCmd()
+	h := newHarness(t)
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("")) // must not even be consulted
-	root.SetErr(&bytes.Buffer{})
 	global := &globalFlags{yes: true}
 
 	ok, err := confirm(root, global, "Proceed?")
@@ -399,9 +383,9 @@ func TestConfirmYesFlagSkipsPrompt(t *testing.T) {
 }
 
 func TestConfirmReadsYesFromStdin(t *testing.T) {
-	root := NewRootCmd()
+	h := newHarness(t)
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("y\n"))
-	root.SetErr(&bytes.Buffer{})
 	global := &globalFlags{}
 
 	ok, err := confirm(root, global, "Proceed?")
@@ -414,9 +398,9 @@ func TestConfirmReadsYesFromStdin(t *testing.T) {
 }
 
 func TestConfirmReadsNoFromStdin(t *testing.T) {
-	root := NewRootCmd()
+	h := newHarness(t)
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("n\n"))
-	root.SetErr(&bytes.Buffer{})
 	global := &globalFlags{}
 
 	ok, err := confirm(root, global, "Proceed?")
@@ -429,9 +413,9 @@ func TestConfirmReadsNoFromStdin(t *testing.T) {
 }
 
 func TestConfirmDefaultsToNoOnEmptyInput(t *testing.T) {
-	root := NewRootCmd()
+	h := newHarness(t)
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("\n")) // Enter with no answer
-	root.SetErr(&bytes.Buffer{})
 	global := &globalFlags{}
 
 	ok, err := confirm(root, global, "Proceed?")
@@ -444,9 +428,9 @@ func TestConfirmDefaultsToNoOnEmptyInput(t *testing.T) {
 }
 
 func TestConfirmDefaultsToNoOnEOF(t *testing.T) {
-	root := NewRootCmd()
+	h := newHarness(t)
+	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("")) // immediate EOF, nothing to read
-	root.SetErr(&bytes.Buffer{})
 	global := &globalFlags{}
 
 	ok, err := confirm(root, global, "Proceed?")
@@ -473,7 +457,7 @@ func (e fakeExitCoder) Error() string { return fmt.Sprintf("exit status %d", e.c
 func (e fakeExitCoder) ExitCode() int { return e.code }
 
 func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
-	useFakeCatalog(t)
+	h := newHarness(t)
 	stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 
@@ -484,9 +468,7 @@ func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 	t.Cleanup(func() { runner = prev })
 
 	var out bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
+	root := h.root(&out)
 	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus-4.6"})
 
 	err := root.Execute()
@@ -502,12 +484,10 @@ func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 // over-broadly silencing: only an agent exit-code error should suppress
 // cobra's default line, not every failure.
 func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
-	setupLaunch(t)
+	h, _ := setupLaunch(t)
 
 	var out bytes.Buffer
-	root := NewRootCmd()
-	root.SetOut(&out)
-	root.SetErr(&out)
+	root := h.root(&out)
 	root.SetArgs([]string{"claude"}) // missing --model
 
 	err := root.Execute()
@@ -520,14 +500,12 @@ func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
 }
 
 func TestLaunchMissingAPIKeyFails(t *testing.T) {
-	useFakeCatalog(t)
+	h := newHarness(t)
 	stubClaudePath(t)
 	captureRun(t)
 	t.Setenv("OPENROUTER_API_KEY", "")
 
-	root := NewRootCmd()
-	root.SetOut(&bytes.Buffer{})
-	root.SetErr(&bytes.Buffer{})
+	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus-4.6"})
 
 	err := root.Execute()
