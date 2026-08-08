@@ -672,6 +672,98 @@ func TestRunNotInstalledShowsTheHintAndReturnsToRoot(t *testing.T) {
 	}
 }
 
+// With Options.Agent set (the `openrouter-launch claude` path) there is no
+// root screen to return to, so a missing binary must end the session with
+// NotInstalledError, not fold into a silent ErrCancelled — the CLI maps
+// ErrCancelled to exit 0, which would make `openrouter-launch claude` report
+// success with the binary missing while `openrouter-launch claude -m <slug>`
+// exits 1 for the identical condition.
+func TestRunNotInstalledWithAgentSetIsFatal(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	spec.Launcher.(*stubLauncher).installed = false
+	spec.Launcher.(*stubLauncher).installHint = "Install it from https://example.test/install"
+
+	opts := stubOptions(svc, spec)
+	opts.Agent = spec
+
+	s := &script{t: t, pick: []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}}}
+
+	_, err := run(context.Background(), opts, s.screens())
+	if errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want a real error, not ErrCancelled", err)
+	}
+	var notInstalled *launch.NotInstalledError
+	if !errors.As(err, &notInstalled) {
+		t.Fatalf("err = %v, want *launch.NotInstalledError", err)
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	if !strings.Contains(strings.Join(s.noticeIn[0].Lines, " "), "example.test/install") {
+		t.Errorf("notice = %+v, does not carry NotInstalledError.Hint", s.noticeIn[0])
+	}
+}
+
+// Same shape as TestRunNotInstalledWithAgentSetIsFatal for the
+// unsupported-agent branch: with no root to return to, the agent genuinely
+// cannot be launched, so this must end the session with
+// UnsupportedAgentError rather than a clean cancellation.
+func TestRunUnsupportedAgentWithAgentSetIsFatal(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := unsupportedSpec("copilot", "cannot be pointed at a custom endpoint")
+
+	opts := stubOptions(svc, spec)
+	opts.Agent = spec
+
+	s := &script{t: t, pick: []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}}}
+
+	_, err := run(context.Background(), opts, s.screens())
+	if errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want a real error, not ErrCancelled", err)
+	}
+	var unsupported *launch.UnsupportedAgentError
+	if !errors.As(err, &unsupported) {
+		t.Fatalf("err = %v, want *launch.UnsupportedAgentError", err)
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	if !strings.Contains(strings.Join(s.noticeIn[0].Lines, " "), "custom endpoint") {
+		t.Errorf("notice = %+v, does not carry the registry's stated reason", s.noticeIn[0])
+	}
+}
+
+// The regression a naive fix would cause: a user-initiated retreat (declining
+// the confirm screen, then backing out of the picker) must still cancel
+// cleanly even with Options.Agent set. Only the three agent-fatal guards in
+// handlePlanError become fatal; backing out on purpose is still a
+// cancellation.
+func TestRunDecliningConfirmWithAgentSetStillCancels(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := incompatibleSpec()
+
+	opts := stubOptions(svc, spec)
+	opts.Agent = spec
+
+	s := &script{
+		t: t,
+		pick: []pickerChoice{
+			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
+			{Kind: pickBack},
+		},
+		confirm: []bool{false},
+	}
+
+	_, err := run(context.Background(), opts, s.screens())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.pickIn) != 2 {
+		t.Errorf("picker opened %d times, want 2 (declining must go back to it)", len(s.pickIn))
+	}
+}
+
 func TestRunUnknownModelFromAProfileListsSuggestions(t *testing.T) {
 	svc, _ := newTestService(t)
 	spec := stubSpec("claude")

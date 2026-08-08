@@ -338,11 +338,13 @@ func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, 
 	var notInstalled *launch.NotInstalledError
 	if errors.As(err, &notInstalled) {
 		// Back to root, not the picker: a different model cannot fix a
-		// missing binary, but a different agent can.
-		return s.noticeThen(noticeInput{
+		// missing binary, but a different agent can. With no root to return
+		// to (Options.Agent set), this is fatal rather than a cancellation —
+		// see noticeThenFatal.
+		return s.noticeThenFatal(noticeInput{
 			Title: notInstalled.DisplayName + " is not installed.",
 			Lines: append(lines, notInstalled.Hint),
-		}, s.rootOrDone())
+		}, err)
 	}
 
 	var unknown *launch.UnknownModelError
@@ -362,18 +364,22 @@ func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, 
 
 	var unsupported *launch.UnsupportedAgentError
 	if errors.As(err, &unsupported) {
-		return s.noticeThen(noticeInput{
+		// Fatal, not a cancellation, when there is no root to return to — see
+		// noticeThenFatal.
+		return s.noticeThenFatal(noticeInput{
 			Title: unsupported.Agent + " cannot be pointed at OpenRouter",
 			Lines: append(lines, unsupported.Reason),
-		}, s.rootOrDone())
+		}, err)
 	}
 
 	var platform *launch.UnsupportedPlatformError
 	if errors.As(err, &platform) {
-		return s.noticeThen(noticeInput{
+		// Fatal, not a cancellation, when there is no root to return to — see
+		// noticeThenFatal.
+		return s.noticeThenFatal(noticeInput{
 			Title: platform.Agent + " cannot run on this platform",
 			Lines: append(lines, platform.Error()),
-		}, s.rootOrDone())
+		}, err)
 	}
 
 	// Anything else — a catalog load failure with no cache, an unreadable
@@ -525,6 +531,24 @@ func (s *session) noticeThen(in noticeInput, next state) (state, error) {
 		return stateDone, err
 	}
 	return s.retreat(next)
+}
+
+// noticeThenFatal shows the notice and returns to the root screen, or ends
+// the session with err when there is no root to return to.
+//
+// The error rather than ErrCancelled is the point: these three conditions
+// mean the agent genuinely cannot be launched, and reporting that as a clean
+// cancellation would make `openrouter-launch claude` exit 0 with the binary
+// missing while `openrouter-launch claude -m <slug>` exits 1 for the very
+// same condition.
+func (s *session) noticeThenFatal(in noticeInput, err error) (state, error) {
+	if nerr := s.sc.notice(in); nerr != nil {
+		return stateDone, nerr
+	}
+	if s.opts.Agent != nil {
+		return stateDone, err
+	}
+	return stateRoot, nil
 }
 
 // warn shows a notice and continues. A persistence failure costs the user a
