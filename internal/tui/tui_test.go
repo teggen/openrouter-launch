@@ -2,10 +2,13 @@ package tui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
@@ -41,6 +44,44 @@ func newTestService(t *testing.T) (*launch.Service, *countingCatalog) {
 		// Never called: the driver returns a plan and the caller launches.
 		Run: func(agent.Command) error { return errors.New("the driver must not launch") },
 	}, cat
+}
+
+// erroringCatalog always fails, forcing Service.Snapshot down the
+// stale-cache fallback path — the mirror of launch package's own
+// erroringCatalog, needed here to reproduce the same stale-plus-cache
+// situation from the driver's side.
+type erroringCatalog struct{}
+
+func (erroringCatalog) Models(context.Context) ([]openrouter.Model, error) {
+	return nil, errors.New("network down")
+}
+
+// seedCatalogCache pre-populates the on-disk catalog cache in the JSON shape
+// openrouter.Cache expects, without depending on its unexported cacheFile
+// type — only the on-disk shape needs to match, as internal/launch's own
+// service_test.go helper does. fetchedAt controls freshness: within
+// openrouter.DefaultTTL the cache is served without a fetch; older forces
+// one. The caller must set XDG_CACHE_HOME before calling this so
+// openrouter.CachePath() resolves inside the test's temp dir.
+func seedCatalogCache(t *testing.T, fetchedAt time.Time) {
+	t.Helper()
+	path, err := openrouter.CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data, err := json.Marshal(struct {
+		FetchedAt time.Time          `json:"fetched_at"`
+		Models    []openrouter.Model `json:"models"`
+	}{FetchedAt: fetchedAt, Models: ortest.Models()})
+	if err != nil {
+		t.Fatalf("marshal cache file: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
 }
 
 type promptResult struct {
@@ -297,8 +338,16 @@ func TestRunSpendsRefreshExactlyOnce(t *testing.T) {
 
 // On the profile path there is no picker, so Plan spends the refresh instead
 // — it must still be spent, or --refresh would do nothing for a profile.
+//
+// The cache is pre-warmed BEFORE asserting a fetch happened. Without that, a
+// cold cache forces a fetch regardless of Refresh (cache.Load fetches
+// unconditionally when there is no cache file), so cat.calls == 1 would hold
+// whether or not stepPlan actually passes Refresh through. Warming the cache
+// first removes that confound: the only thing that can now explain a fetch
+// is --refresh being honored.
 func TestRunProfilePathSpendsRefreshOnPlan(t *testing.T) {
 	svc, cat := newTestService(t)
+	seedCatalogCache(t, time.Now())
 	spec := stubSpec("claude")
 	opts := stubOptions(svc, spec)
 	opts.Refresh = true
@@ -311,7 +360,33 @@ func TestRunProfilePathSpendsRefreshOnPlan(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	if cat.calls != 1 {
-		t.Errorf("catalog fetched %d times, want 1", cat.calls)
+		t.Errorf("catalog fetched %d times, want 1; --refresh was not honored", cat.calls)
+	}
+}
+
+// The mirror of the test above: with a warm cache and Refresh false, the
+// catalog must NOT be fetched. Neither this test nor the one above is
+// sufficient alone — the first only pins the fetch happening when Refresh is
+// true, the second only pins it not happening when Refresh is false. Together
+// they pin both halves of "exactly once"; a regression dropping Refresh from
+// stepPlan entirely would pass whichever half runs Refresh: false but fail
+// the other.
+func TestRunProfilePathWithoutRefreshServesTheCache(t *testing.T) {
+	svc, cat := newTestService(t)
+	seedCatalogCache(t, time.Now())
+	spec := stubSpec("claude")
+	opts := stubOptions(svc, spec)
+	opts.Refresh = false
+
+	s := &script{t: t, root: []rootChoice{{Kind: choiceProfile, Profile: config.Profile{
+		Name: "p", Agent: "claude", Model: "anthropic/claude-opus-4.6",
+	}}}}
+
+	if _, err := run(context.Background(), opts, s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if cat.calls != 0 {
+		t.Errorf("catalog fetched %d times, want 0; a fresh cache should short-circuit the fetch", cat.calls)
 	}
 }
 
@@ -625,6 +700,57 @@ func TestRunUnknownModelFromAProfileListsSuggestions(t *testing.T) {
 	}
 }
 
+// launch.Plan's doc comment states the contract: warnings accumulated before
+// a fatal guard are returned alongside the error, not discarded, because a
+// stale catalog is frequently the reason a later guard failed. This puts a
+// user through exactly that: an unknown model AND a stale, offline catalog at
+// once, so the notice must explain both — not just the unknown-model half —
+// or the one fact that explains the failure (the catalog is stale and could
+// not refresh) is silently lost.
+func TestRunRendersWarningsAccumulatedBeforeAFatalGuard(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(config.APIKeyEnvVar, "test-key")
+	// Older than openrouter.DefaultTTL plus an always-failing catalog forces
+	// Cache.Load down the stale-serve path, so Plan appends the stale warning
+	// before it ever reaches the unknown-model guard below it.
+	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
+
+	svc := &launch.Service{
+		Catalog: erroringCatalog{},
+		// Never called: the driver returns a plan and the caller launches.
+		Run: func(agent.Command) error { return errors.New("the driver must not launch") },
+	}
+	spec := stubSpec("claude")
+	s := &script{
+		t: t,
+		root: []rootChoice{
+			// A substring of "anthropic/claude-opus-4.6" in the cached
+			// fixture, so Suggest offers it back — same trick as
+			// TestRunUnknownModelFromAProfileListsSuggestions.
+			{Kind: choiceProfile, Profile: config.Profile{
+				Name: "stale", Agent: "claude", Model: "anthropic/claude-opus-4",
+			}},
+			{Kind: choiceCancel},
+		},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	joined := strings.Join(s.noticeIn[0].Lines, "\n")
+	if !strings.Contains(joined, "could not refresh the model catalog") {
+		t.Errorf("notice = %q, is missing the stale-catalog warning (plan.Warnings was dropped)", joined)
+	}
+	if !strings.Contains(joined, "anthropic/claude-opus-4.6") {
+		t.Errorf("notice = %q, is missing UnknownModelError.Suggestions", joined)
+	}
+}
+
 func TestRunUnsupportedAgentFromAProfileExplainsWhy(t *testing.T) {
 	svc, _ := newTestService(t)
 	spec := unsupportedSpec("copilot", "cannot be pointed at a custom endpoint")
@@ -723,5 +849,39 @@ func TestRunDoesNotLoopWhenTheSavedKeyStillDoesNotResolve(t *testing.T) {
 	}
 	if len(s.promptIn) != 1 {
 		t.Errorf("prompt shown %d times, want exactly 1", len(s.promptIn))
+	}
+}
+
+// keyPrompted's guard bounds the retry after a key was actually SAVED, not
+// how many times the screen may be offered. Pressing esc must not burn that
+// one chance: the user backs out to the picker, picks a model again, and the
+// prompt must still appear.
+func TestRunEscFromTheKeyPromptOffersItAgainOnASecondAttempt(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv(config.APIKeyEnvVar, "")
+
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
+			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
+		},
+		prompt: []promptResult{
+			{ok: false}, // esc: must not disable the retry
+			{value: "sk-or-typed", ok: true},
+		},
+	}
+
+	plan, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(s.promptIn) != 2 {
+		t.Fatalf("prompt shown %d times, want 2 (esc must not disable a later retry)", len(s.promptIn))
+	}
+	if plan.Command.Path == "" {
+		t.Error("the retry after the second key prompt did not produce a command")
 	}
 }

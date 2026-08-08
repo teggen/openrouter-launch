@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
@@ -162,6 +163,11 @@ func run(ctx context.Context, opts Options, sc screens) (launch.Plan, error) {
 			st, err = s.stepPlan()
 		case stateConfirm:
 			st, err = s.stepConfirm()
+		default:
+			// A state constant added later without a case here would leave st
+			// and err unchanged and spin this loop forever; report it as the
+			// bug it is instead of hanging at 100% CPU with no output.
+			return s.finish(launch.Plan{}, fmt.Errorf("tui: unhandled state %d", st))
 		}
 		if err != nil {
 			return s.finish(launch.Plan{}, err)
@@ -261,7 +267,10 @@ func (s *session) stepPlan() (state, error) {
 		Refresh:   s.takeRefresh(),
 	})
 	if err != nil {
-		return s.handlePlanError(err)
+		// plan.Warnings carries anything accumulated before the fatal guard
+		// that produced err — see launch.Plan's doc comment — and must reach
+		// the user, not just err.
+		return s.handlePlanError(plan.Warnings, err)
 	}
 
 	s.plan = plan
@@ -313,7 +322,14 @@ func (s *session) stepConfirm() (state, error) {
 	return stateDone, nil
 }
 
-func (s *session) handlePlanError(err error) (state, error) {
+func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, error) {
+	var lines []string
+	for _, w := range warnings {
+		// The "warning: " prefix is added here because this is the layer that
+		// knows these are warnings; Warning.Message deliberately omits it.
+		lines = append(lines, "warning: "+w.Message)
+	}
+
 	// The API key is the one failure this screen can fix in place.
 	if errors.Is(err, config.ErrNoAPIKey) {
 		return s.promptForAPIKey(err)
@@ -325,13 +341,13 @@ func (s *session) handlePlanError(err error) (state, error) {
 		// missing binary, but a different agent can.
 		return s.noticeThen(noticeInput{
 			Title: notInstalled.DisplayName + " is not installed.",
-			Lines: []string{notInstalled.Hint},
+			Lines: append(lines, notInstalled.Hint),
 		}, s.rootOrDone())
 	}
 
 	var unknown *launch.UnknownModelError
 	if errors.As(err, &unknown) {
-		lines := []string{"The catalog has no model with that slug."}
+		lines = append(lines, "The catalog has no model with that slug.")
 		if len(unknown.Suggestions) > 0 {
 			lines = append(lines, "", "Did you mean:")
 			for _, sug := range unknown.Suggestions {
@@ -348,7 +364,7 @@ func (s *session) handlePlanError(err error) (state, error) {
 	if errors.As(err, &unsupported) {
 		return s.noticeThen(noticeInput{
 			Title: unsupported.Agent + " cannot be pointed at OpenRouter",
-			Lines: []string{unsupported.Reason},
+			Lines: append(lines, unsupported.Reason),
 		}, s.rootOrDone())
 	}
 
@@ -356,12 +372,24 @@ func (s *session) handlePlanError(err error) (state, error) {
 	if errors.As(err, &platform) {
 		return s.noticeThen(noticeInput{
 			Title: platform.Agent + " cannot run on this platform",
-			Lines: []string{platform.Error()},
+			Lines: append(lines, platform.Error()),
 		}, s.rootOrDone())
 	}
 
 	// Anything else — a catalog load failure with no cache, an unreadable
-	// config — cannot be resolved from inside the picker.
+	// config — cannot be resolved from inside the picker. Still surface any
+	// warnings accumulated before the failure: a stale catalog is frequently
+	// the reason the guard below it failed, and a plain error here gives no
+	// other way to see that. With no warnings this stays a plain failure, so
+	// it does not gain a screen it never had before.
+	if len(lines) > 0 {
+		if nerr := s.sc.notice(noticeInput{
+			Title: "Could not plan the launch",
+			Lines: append(lines, err.Error()),
+		}); nerr != nil {
+			return stateDone, nerr
+		}
+	}
 	return stateDone, err
 }
 
@@ -372,7 +400,6 @@ func (s *session) promptForAPIKey(planErr error) (state, error) {
 		// again would loop forever.
 		return stateDone, planErr
 	}
-	s.keyPrompted = true
 
 	key, ok, err := s.sc.prompt(promptInput{
 		Title:  "An OpenRouter API key is needed to launch",
@@ -403,6 +430,11 @@ func (s *session) promptForAPIKey(planErr error) (state, error) {
 		}
 	}
 	s.cfg = cfg
+	// Set only now, on the path that actually saved a key and is about to
+	// retry Plan with it. The guard above bounds THAT retry, not how many
+	// times this screen may be offered — setting it earlier would burn the
+	// user's one chance the moment they pressed esc.
+	s.keyPrompted = true
 	return statePlan, nil
 }
 
