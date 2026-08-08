@@ -68,7 +68,7 @@ codex
   -c model_providers.openrouter.name="OpenRouter"
   -c model_providers.openrouter.base_url="https://openrouter.ai/api/v1"
   -c model_providers.openrouter.env_key="OPENROUTER_API_KEY"
-  -c model_providers.openrouter.wire_api="chat"
+  -c model_providers.openrouter.wire_api="responses"
   -m <slug>
   <passthrough args…>
 ```
@@ -93,10 +93,12 @@ reports success — the same silent-loss class Landmine 3 exists for. This
 follows ollama's `codexValidateExtraArgs`, minus the keys for features we
 don't use (`profile`, `model_catalog_json`).
 
-**`wire_api = "chat"`** is the community-verified value for OpenRouter.
-Confirmed live during the build (see Verification); if this codex version
-rejects it, the recorded fallback is `"responses"` (OpenRouter has a beta
-Responses API), and the spec gets updated with what was actually verified.
+**`wire_api = "responses"`** is the verified value on codex 0.146.1. The
+originally planned `"chat"` was tried first live and codex 0.146.1 rejects
+it outright (`Error loading config.toml: 'wire_api = "chat"' is no longer
+supported. ... set 'wire_api = "responses"'`); `"responses"` was retried
+and produced a real completion through OpenRouter. See Testing and
+verification below for the dated record.
 
 **Installable.** `LookPath("codex")` only; npm global installs land on
 `PATH`. Hint: `npm install -g @openai/codex`.
