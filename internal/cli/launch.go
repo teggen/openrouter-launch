@@ -10,6 +10,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
 // newLaunchCmds builds one subcommand per registered agent.
@@ -55,11 +56,10 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 	}
 
 	if errors.Is(err, launch.ErrNoModel) {
-		// Phase 2 replaces this branch with the interactive picker. The
-		// planner reports the bare condition; naming a CLI flag is this
-		// layer's job.
-		return fmt.Errorf("a model is required: pass --model <slug> (run %q to browse; "+
-			"the interactive picker arrives in Phase 2)", "openrouter-launch models")
+		// No model named, so open the picker. ErrNoModel is returned by
+		// Plan's third guard, before the catalog is loaded, so plan.Warnings
+		// is always empty here and nothing is rendered twice.
+		return runTUI(cmd, a, spec, extraArgs)
 	}
 	if err != nil {
 		return err
@@ -81,17 +81,51 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 		}
 	}
 
+	return handoff(cmd, a, plan)
+}
+
+// runTUI opens the interactive session and launches whatever it approves.
+//
+// tui.Run has already returned by the time handoff runs, so every bubbletea
+// program has torn down and the terminal is out of raw mode before
+// syscall.Exec replaces the process.
+func runTUI(cmd *cobra.Command, a *app, spec *agent.Spec, extraArgs []string) error {
+	plan, err := a.openTUI(cmd.Context(), tui.Options{
+		Service:   a.svc,
+		Agent:     spec,
+		ExtraArgs: extraArgs,
+		Refresh:   a.flags.refresh,
+		AssumeYes: a.flags.yes,
+	})
+	if errors.Is(err, tui.ErrCancelled) {
+		// Backing out of the picker is not a failure.
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	// Rendered here as well as on the confirm screen: the picker runs in the
+	// alt screen, so everything it drew is gone once that tears down, and
+	// this line is the only lasting trace in scrollback.
+	for _, w := range plan.Warnings {
+		renderWarning(cmd, w)
+	}
+	return handoff(cmd, a, plan)
+}
+
+// handoff is the tail both launch paths share.
+func handoff(cmd *cobra.Command, a *app, plan launch.Plan) error {
 	if err := a.svc.Launch(plan, func(w launch.Warning) {
 		renderWarning(cmd, w)
 	}); err != nil {
 		if isAgentExitError(err) {
 			// On Windows, agent.Run waits for the child instead of replacing
-			// the process (exec_windows.go), so a nonzero exit reaches here
-			// as an error wrapping *exec.ExitError. The agent already
-			// inherited stderr and reported its own failure, so cobra's
-			// default "Error: ..." line would just be redundant noise on
-			// top; main still receives the real error to extract the exit
-			// code from (see exitCode in main.go).
+			// the process, so a nonzero exit arrives here wrapping an
+			// *exec.ExitError. The agent already inherited stderr and
+			// reported its own failure, so cobra's "Error: ..." line would be
+			// redundant noise; main still receives the error to extract the
+			// exit code from.
 			cmd.SilenceErrors = true
 		}
 		return err

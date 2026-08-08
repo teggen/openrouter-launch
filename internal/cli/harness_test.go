@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
+	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
 // harness builds a CLI wired to an in-memory catalog, with config and cache
@@ -23,6 +25,12 @@ type harness struct {
 	svc *launch.Service
 	// ran is the command the handoff would have executed.
 	ran agent.Command
+	// tuiPlan and tuiErr are what the injected TUI returns; tuiOpts records
+	// what the CLI passed it.
+	tuiPlan  launch.Plan
+	tuiErr   error
+	tuiOpts  []tui.Options
+	tuiCalls int
 }
 
 // newHarness builds a harness against the shared ortest fixture catalog. Most
@@ -42,7 +50,7 @@ func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
 	t.Setenv("XDG_CACHE_HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	h := &harness{}
+	h := &harness{tuiErr: tui.ErrCancelled}
 	h.svc = &launch.Service{
 		Catalog: catalog,
 		Run: func(c agent.Command) error {
@@ -80,7 +88,11 @@ func seedStaleCache(t *testing.T) {
 
 // root returns a fresh command tree with both streams writing into out.
 func (h *harness) root(out *bytes.Buffer) *cobra.Command {
-	root := NewRootCmdWith(h.svc)
+	root := newRootCmd(h.svc, func(_ context.Context, o tui.Options) (launch.Plan, error) {
+		h.tuiCalls++
+		h.tuiOpts = append(h.tuiOpts, o)
+		return h.tuiPlan, h.tuiErr
+	})
 	root.SetOut(out)
 	root.SetErr(out)
 	return root

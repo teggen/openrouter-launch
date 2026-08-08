@@ -97,25 +97,10 @@ func TestLaunchUnknownModelSuggests(t *testing.T) {
 	}
 }
 
-func TestLaunchRequiresModelFlag(t *testing.T) {
-	h := setupLaunch(t)
-
-	_, err := h.exec("claude")
-	if err == nil {
-		t.Fatal("expected an error when --model is omitted in Phase 1")
-	}
-	// Asserting only that *some* error occurred would also pass if the
-	// modelID=="" guard were deleted: with no model given, an empty query
-	// reaches openrouter.Suggest, whose empty-query branch matches every
-	// model, so resolveAndRun still returns a non-nil (but wrong) "unknown
-	// model" error. Pin down the right error.
-	if !strings.Contains(err.Error(), "a model is required") {
-		t.Errorf("error should name the missing --model flag, got: %v", err)
-	}
-	if strings.Contains(err.Error(), "unknown model") {
-		t.Errorf("missing --model should be reported as missing, not as an unknown model: %v", err)
-	}
-}
+// Omitting --model used to be an error ("a model is required" in Phase 1);
+// Task 10 replaces that with opening the picker for the named agent instead.
+// See TestLaunchWithoutAModelOpensThePickerForThatAgent in tui_test.go for
+// that behavior's coverage.
 
 func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 	h := setupLaunch(t)
@@ -287,10 +272,15 @@ func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 // TestLaunchOtherErrorsStillPrintCobraErrorLine guards against
 // over-broadly silencing: only an agent exit-code error should suppress
 // cobra's default line, not every failure.
+//
+// A missing --model no longer serves as the "other error" here: Task 10
+// makes resolveAndRun open the picker for that case instead of failing (see
+// TestLaunchWithoutAModelOpensThePickerForThatAgent in tui_test.go). An
+// unknown model slug is still a plain, non-exit-code error.
 func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
 	h := setupLaunch(t)
 
-	out, err := h.exec("claude") // missing --model
+	out, err := h.exec("claude", "-m", "totally-bogus-model")
 	if err == nil {
 		t.Fatal("expected an error")
 	}

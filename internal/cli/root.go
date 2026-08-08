@@ -2,9 +2,12 @@
 package cli
 
 import (
+	"context"
+
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
 // globalFlags holds values shared by every subcommand.
@@ -13,11 +16,18 @@ type globalFlags struct {
 	yes     bool
 }
 
+// tuiFunc opens the interactive session. It is a field on app rather than a
+// direct call to tui.Run so tests can drive the CLI's wiring without a
+// terminal — the same reasoning that made Service.Catalog and Service.Run
+// fields rather than package globals.
+type tuiFunc func(context.Context, tui.Options) (launch.Plan, error)
+
 // app is what every subcommand needs: the shared launch service and the
 // global flag values.
 type app struct {
-	svc   *launch.Service
-	flags *globalFlags
+	svc     *launch.Service
+	flags   *globalFlags
+	openTUI tuiFunc
 }
 
 // NewRootCmd builds the command tree against the live OpenRouter API.
@@ -25,11 +35,12 @@ func NewRootCmd() *cobra.Command {
 	return NewRootCmdWith(&launch.Service{})
 }
 
-// NewRootCmdWith builds the command tree against the given service. It is a
-// constructor rather than a package-level variable so tests get an isolated
-// tree per run, and it takes the service as an argument rather than reading
-// a package global so that a Phase 2 TUI can share the same instance.
+// NewRootCmdWith builds the command tree against the given service.
 func NewRootCmdWith(svc *launch.Service) *cobra.Command {
+	return newRootCmd(svc, tui.Run)
+}
+
+func newRootCmd(svc *launch.Service, openTUI tuiFunc) *cobra.Command {
 	if svc == nil {
 		// A nil Service would build a full command tree that panics later,
 		// on first use, when Snapshot dereferences a nil receiver. Fail at
@@ -37,7 +48,7 @@ func NewRootCmdWith(svc *launch.Service) *cobra.Command {
 		// agent.buildIndex for a nil Launcher.
 		panic("cli: NewRootCmdWith requires a non-nil *launch.Service")
 	}
-	a := &app{svc: svc, flags: &globalFlags{}}
+	a := &app{svc: svc, flags: &globalFlags{}, openTUI: openTUI}
 
 	root := &cobra.Command{
 		Use:   "openrouter-launch",
@@ -45,6 +56,13 @@ func NewRootCmdWith(svc *launch.Service) *cobra.Command {
 		Long: "openrouter-launch picks an OpenRouter model and starts a coding " +
 			"agent configured to use it, without modifying the agent's own configuration.",
 		SilenceUsage: true,
+		// NoArgs is required, not cosmetic. Once root has a RunE, cobra
+		// routes an unrecognized subcommand into it instead of erroring, so
+		// `openrouter-launch bogus` would silently open the picker.
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runTUI(cmd, a, nil, nil)
+		},
 	}
 
 	root.PersistentFlags().BoolVar(&a.flags.refresh, "refresh", false,
