@@ -29,9 +29,11 @@ principle** and it is the design's central claim — see Landmine 6.
 | Repo | `github.com/teggen/openrouter-launch` (HTTPS remote, `gh` credential helper) |
 | Branch | `main` — user chose direct-to-main, no feature branches |
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
-| Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, Linux/macOS/Windows cross-build |
-| Agents shipped | Claude Code only |
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
+| Tests | 364 total, 175 of them in `internal/tui` |
+| Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean, Linux/macOS/Windows cross-build |
+| Agents shipped | Claude Code only |
+| **Not pushed** | `origin/main` is at `94e91e8`, **47 commits behind**. Everything since — the planner refactor and the whole TUI — is committed locally only. An earlier revision of this file claimed the refactor was "pushed to `main`"; that was wrong. |
 
 Working commands, all smoke-tested against the live API:
 
@@ -61,8 +63,10 @@ openrouter-launch claude              # no -m: straight to the picker
 ```
 docs/superpowers/specs/2026-08-07-openrouter-launch-design.md            the spec — read for WHY
 docs/superpowers/specs/2026-08-07-phase-2-planner-refactor-design.md     spec for the internal/launch refactor
+docs/superpowers/specs/2026-08-08-phase-2-tui-design.md                  spec for the TUI — the current phase
 docs/superpowers/plans/2026-08-07-phase-1-core.md                        the Phase 1 plan
 docs/superpowers/plans/2026-08-07-phase-2-planner-refactor.md            the plan that built internal/launch
+docs/superpowers/plans/2026-08-08-phase-2-tui.md                         the plan that built internal/tui
 .superpowers/sdd/progress.md                                             build ledger (gitignored)
 .superpowers/sdd/*-report.md                                             per-task reports (gitignored)
 
@@ -219,13 +223,48 @@ must keep exiting 0 because backing out really is a cancellation. The naive
 fix — routing those three branches through `rootOrDone()` unconditionally,
 or changing `rootOrDone()` itself — reintroduces this exact regression.
 
+**16. Every closure in `liveScreens` must be tested by running a real
+program, never by asserting it is non-nil.** *(This was the headline finding
+of the whole-branch review.)* `internal/tui/program.go` is the only seam
+between the driver — tested against injected stub closures — and the screen
+models, tested as models. Neither side can notice a mistake in the glue. When
+its only test asserted the five fields were non-nil, **seven** separate
+inversions of those closures left the entire suite green, including `confirm`
+returning `!m.answer` (answering "no" to "Launch anyway?" would *launch*) and
+`prompt` ignoring `m.submitted` (pressing esc at the API-key prompt would
+write an empty `api_key` into the user's config). The fix drives each closure
+end to end through its actual bubbletea program, headlessly:
+
+```go
+runProgram(newPickerModel(in),
+    tea.WithInput(strings.NewReader("\x1b[B\r")),  // Down, Enter
+    tea.WithOutput(&buf),
+    tea.WithoutSignalHandler())
+```
+
+No TTY is needed. If you add a screen, add its closure test the same way —
+`internal/tui/program_test.go` has the pattern. Two honest gaps are inherent
+and documented there: `tea.WithInput` bypasses raw-mode setup, and
+`WithoutSignalHandler` means the real SIGINT path is not exercised. Note
+these tests fail by *hanging* if key handling regresses, not by asserting.
+
+**17. `chromeHeight` is 9, not 8, and recounting the chrome lines will tell
+you 8.** `View()` writes 8 lines of non-list chrome, but its output also ends
+in `"\n"`, so splitting it the way bubbletea's renderer does yields one more
+element than the newline count. The renderer drops from the *top* when the
+split exceeds the terminal height — and line 0 is the title/search line, so
+an off-by-one makes the live search echo invisible at every terminal height.
+This shipped once. The full accounting is in the constant's comment in
+`internal/tui/picker.go`; `TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights`
+pins it against the renderer's actual arithmetic.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
 type-to-search and four filters, `ctrl+s` profile save, API-key prompt,
 notice screens for the planner's typed errors.
 
-Two deliberate divergences from the original design doc, both recorded in
+Four deliberate divergences from the original design doc, all recorded in
 `docs/superpowers/specs/2026-08-08-phase-2-tui-design.md`:
 
 - **Filters are on `alt+t/f/c/p`, not bare `t/f/c/$`.** The original key
@@ -234,6 +273,22 @@ Two deliberate divergences from the original design doc, both recorded in
   `"t"`; a mutation test pins that a chord can never fall through to the
   search box.
 - **`go 1.22` became `go 1.24`**, which bubbletea requires from v1.3.8.
+- **The API key is saved unconditionally, and the prompt says so.** The spec
+  originally promised an "offer to save". There is no offer: the prompt
+  discloses, before you type, that the key will be written to the config
+  path (resolved through `config.Path()`, so it honors `XDG_CONFIG_HOME`).
+  The owner chose disclosure over a real yes/no because a
+  decline-and-still-launch path would need an `APIKey` override threaded
+  through `internal/launch` — `Plan` resolves the key from config or the
+  environment only. This is the tool's one credential write; the file is
+  0600 (Landmine 9).
+- **`ctrl+c` cancels the whole session in one press, from any screen.** It is
+  deliberately *not* an alias for `esc`, which still means "go back one
+  step". This matters because bubbletea holds the terminal in raw mode with
+  `ISIG` off, so there is no SIGINT fallback — when `ctrl+c` was aliased to
+  `esc`, leaving a picker reached after declining a confirm took three
+  presses and nothing could abort the process. Each screen returns a
+  distinct cancellation the driver checks before any other routing.
 
 **Deferred:** the background catalog refresh streaming into the live picker.
 The cache carries a 24h TTL, so a warm cache is already current and the only
@@ -269,8 +324,16 @@ stated reason.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
-- **10 of 17 deferred Minor findings** were triaged as defer-or-drop with reasons,
-  recorded in the ledger. Seven were fixed.
+- **Deferred Minor findings live in the ledger**, per phase, each with a reason:
+  Phase 1 deferred 10 of 17 and fixed 7; the TUI phase carried 16 into its
+  whole-branch review, which fixed 8, deferred 4, and dropped 4 as already
+  resolved or harmless. The four still open are named in
+  `.superpowers/sdd/progress.md`: a picker clamp test that measures the cursor
+  reset rather than the clamp (the property is structurally guaranteed — the
+  fix is a rename), `isTTY`'s real body never being invoked by any test, the
+  headless program tests failing by hanging rather than asserting, and a dead
+  `opts.Agent != nil` branch in `rootOrDone()` left as defense in depth per
+  Landmine 15.
 - **`go 1.24`** in `go.mod` is bubbletea's floor (from v1.3.8), not an oversight
   — see "Phase 2 — complete" above. It replaced Phase 1's deliberate 1.22 floor;
   nothing else in the code needs past 1.24. The toolchain that builds it is
@@ -284,27 +347,57 @@ Spec → plan → subagent-driven execution: one fresh implementer subagent per 
 a spec+quality review after each, fix rounds until clean, then a whole-branch
 review. Task briefs were extracted to files rather than pasted into prompts.
 
-**The single most useful lesson, if you continue this way:** nine of the ten
-Important findings during implementation were defects in *the plan's test code*,
-not in the implementers' work — tests that passed for the wrong reason. Real
-examples: `strings.Contains(out, "installed")` could never fail because
-`"installed"` is a substring of `"not installed"`; a required-flag test still
-passed with the guard deleted because a different error surfaced and it only
-checked `err != nil`; a `Suggest` test was outright impossible to pass because the
-query matched nothing. Naming that specific failure pattern in reviewer prompts
-caught it every time afterward. Ask of every test: *would this fail if the
-behavior it names were broken?*
+**The single most useful lesson, if you continue this way:** the Important
+findings are overwhelmingly defects in *the plan's test code*, not in the
+implementers' work — tests that pass, or could never pass, for the wrong
+reason. Phase 1: nine of ten. The TUI phase: eight more, across seven of its
+eleven tasks. Real examples from this repo:
+
+- `strings.Contains(out, "installed")` could never fail — `"installed"` is a
+  substring of `"not installed"`.
+- A required-flag test passed with the guard deleted, because a different
+  error surfaced and it only checked `err != nil`.
+- A `Suggest` test was impossible to pass: the query matched nothing, and
+  `Suggest` is literal substring containment, not fuzzy matching. **This one
+  recurred in the TUI phase after Phase 1 had already recorded it here** —
+  writing the lesson down did not stop me reproducing it.
+- A cursor-boundary test could not tell "stop" from "wrap": its fixture had
+  two selectable rows, which form a 2-cycle under wraparound, so both
+  semantics produced identical results for the press counts used.
+- A price-ceiling test asserted a set `Apply` could never produce — a free
+  model clears any positive ceiling.
+- A refresh test held for *any* implementation, because a cold cache fetches
+  regardless of the flag.
+- View assertions satisfied by text that renders unconditionally (a filter
+  name that also appears in the key footer).
+
+Two things caught these reliably. **Naming the failure pattern explicitly in
+reviewer prompts**, with concrete examples from this repo. And **requiring a
+mutation check per non-obvious behavior**: break it deliberately, watch the
+named test fail, revert. A test you have never seen fail is not evidence.
+Ask of every test: *would this fail if the behavior it names were broken?*
 
 ## Verify the tree is sound
 
 ```bash
 go test ./... -count=1
+go test ./internal/tui/ -race -count=1
 go vet ./... && gofmt -l .
 GOOS=windows go build ./... && GOOS=darwin go build ./...
 go build -o /tmp/orl . && /tmp/orl agents
 /tmp/orl models --tools=false | head -5
 /tmp/orl models | head -5
+/tmp/orl bogus                      # must error: unknown command
+/tmp/orl < /dev/null                # must refuse, naming --model
+
+# Landmine 8: nothing may depend on Claude Code being installed here.
+HOME=$(mktemp -d) PATH="/usr/local/go/bin:/usr/bin:/bin" go test ./... -count=1
 ```
+
+The `HOME` line is the one that catches machine-dependent tests. It must be
+fully green — `claude` really is installed at `~/.local/bin/claude` on this
+machine, and a test that forgot to isolate `HOME` passes here and fails
+everywhere else.
 
 The last two hit the live OpenRouter API. Bare `models` should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
