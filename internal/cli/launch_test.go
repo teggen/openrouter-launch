@@ -2,68 +2,12 @@ package cli
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
-
-// fakeLauncher is a minimal agent.Launcher for exercising resolveAndRun's
-// guards directly. The real registry only has one agent (claude), which is
-// always Status.Supported and never implements PlatformSupported, so those
-// guard branches are otherwise unreachable from CLI-level tests.
-type fakeLauncher struct {
-	name        string
-	displayName string
-}
-
-func (f *fakeLauncher) Name() string        { return f.name }
-func (f *fakeLauncher) DisplayName() string { return f.displayName }
-func (f *fakeLauncher) Command(agent.Request) (agent.Command, error) {
-	return agent.Command{Path: "/bin/fake"}, nil
-}
-
-// fakePlatformLauncher additionally reports itself as unsupported on this
-// platform, regardless of what it actually runs on.
-type fakePlatformLauncher struct {
-	fakeLauncher
-}
-
-func (f *fakePlatformLauncher) Supported() error {
-	return errors.New("windows is not supported yet")
-}
-
-// fakeIncompatibleLauncher's CheckModel returns a plain error rather than
-// one wrapping agent.ErrIncompatibleModel, exercising the genuine-failure
-// branch of resolveAndRun's compatibility check. agent.Claude never takes
-// this branch (it returns either nil or an ErrIncompatibleModel-wrapped
-// error), so it is otherwise unreachable from CLI-level tests.
-type fakeIncompatibleLauncher struct {
-	fakeLauncher
-	err error
-}
-
-func (f *fakeIncompatibleLauncher) CheckModel(openrouter.Model) error {
-	return f.err
-}
-
-// captureRun replaces the process handoff so tests observe the command
-// instead of executing it.
-func captureRun(t *testing.T) *agent.Command {
-	t.Helper()
-	var got agent.Command
-	prev := runner
-	runner = func(c agent.Command) error {
-		got = c
-		return nil
-	}
-	t.Cleanup(func() { runner = prev })
-	return &got
-}
 
 // stubClaudePath makes the registry's Claude launcher resolve without a real
 // binary on this machine.
@@ -82,47 +26,48 @@ func stubClaudePath(t *testing.T) {
 	t.Cleanup(func() { claude.LookPath = prev })
 }
 
-func setupLaunch(t *testing.T) (*harness, *agent.Command) {
+func setupLaunch(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
 	stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-	return h, captureRun(t)
+	return h
 }
 
 func TestLaunchBuildsCommand(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
 
-	if got.Path != "/usr/local/bin/claude" {
-		t.Errorf("Path = %q", got.Path)
+	if h.ran.Path != "/usr/local/bin/claude" {
+		t.Errorf("Path = %q", h.ran.Path)
 	}
-	if len(got.Args) < 2 || got.Args[0] != "--model" || got.Args[1] != "anthropic/claude-opus-4.6" {
-		t.Errorf("Args = %v", got.Args)
+	if len(h.ran.Args) < 2 || h.ran.Args[0] != "--model" ||
+		h.ran.Args[1] != "anthropic/claude-opus-4.6" {
+		t.Errorf("Args = %v", h.ran.Args)
 	}
 
 	var foundKey bool
-	for _, e := range got.Env {
+	for _, e := range h.ran.Env {
 		if e == "ANTHROPIC_API_KEY=sk-or-test" {
 			foundKey = true
 		}
 	}
 	if !foundKey {
-		t.Errorf("API key not passed through: %v", got.Env)
+		t.Errorf("API key not passed through: %v", h.ran.Env)
 	}
 }
 
 func TestLaunchPassesExtraArgsAfterDoubleDash(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6", "--", "--resume")
 
-	if len(got.Args) != 3 || got.Args[2] != "--resume" {
-		t.Errorf("Args = %v, want the trailing --resume", got.Args)
+	if len(h.ran.Args) != 3 || h.ran.Args[2] != "--resume" {
+		t.Errorf("Args = %v, want the trailing --resume", h.ran.Args)
 	}
 }
 
 func TestLaunchRecordsLastSelection(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
 
 	cfg := mustLoadConfig(t)
@@ -134,47 +79,13 @@ func TestLaunchRecordsLastSelection(t *testing.T) {
 	}
 }
 
-// TestLaunchSavesSelectionBeforeHandoff proves the ordering, not just the
-// end state: on Unix, runner (syscall.Exec) never returns on success, so if
-// the save happened after the call instead of before, it would silently
-// never happen. captureRun's stub does return, so a same-process reordering
-// bug wouldn't otherwise be observable; this test inspects the config from
-// inside the runner callback itself, before resolveAndRun continues.
-func TestLaunchSavesSelectionBeforeHandoff(t *testing.T) {
-	h := newHarness(t)
-	stubClaudePath(t)
-	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-
-	var savedBeforeHandoff bool
-	prev := runner
-	runner = func(c agent.Command) error {
-		cfg, err := config.Load()
-		if err != nil {
-			t.Fatalf("config.Load inside runner: %v", err)
-		}
-		savedBeforeHandoff = cfg.LastAgent == "claude" && cfg.LastModel == "anthropic/claude-opus-4.6"
-		return nil
-	}
-	t.Cleanup(func() { runner = prev })
-
-	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
-
-	if !savedBeforeHandoff {
-		t.Error("expected the last selection to be persisted before control reaches runner")
-	}
-}
-
 func TestLaunchUnknownModelSuggests(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	// "anthropic/claude-opus" (missing the version suffix) is not an exact
 	// slug match, but it is a substring of anthropic/claude-opus-4.6, which
 	// is what openrouter.Suggest's substring matching requires to surface it.
-	var out bytes.Buffer
-	root := h.root(&out)
-	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus"})
-
-	err := root.Execute()
+	_, err := h.exec("claude", "-m", "anthropic/claude-opus")
 	if err == nil {
 		t.Fatal("expected an error for an unknown model")
 	}
@@ -184,21 +95,17 @@ func TestLaunchUnknownModelSuggests(t *testing.T) {
 }
 
 func TestLaunchRequiresModelFlag(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
-	var out bytes.Buffer
-	root := h.root(&out)
-	root.SetArgs([]string{"claude"})
-
-	err := root.Execute()
+	_, err := h.exec("claude")
 	if err == nil {
 		t.Fatal("expected an error when --model is omitted in Phase 1")
 	}
 	// Asserting only that *some* error occurred would also pass if the
 	// modelID=="" guard were deleted: with no model given, an empty query
 	// reaches openrouter.Suggest, whose empty-query branch matches every
-	// model, so FindByID still fails and resolveAndRun still returns a
-	// non-nil (but wrong) "unknown model" error. Pin down the right error.
+	// model, so resolveAndRun still returns a non-nil (but wrong) "unknown
+	// model" error. Pin down the right error.
 	if !strings.Contains(err.Error(), "a model is required") {
 		t.Errorf("error should name the missing --model flag, got: %v", err)
 	}
@@ -207,107 +114,8 @@ func TestLaunchRequiresModelFlag(t *testing.T) {
 	}
 }
 
-// TestCheckAgentSupported exercises checkAgentSupported directly with a
-// synthetic spec, since the real registry only has claude, which is always
-// Status.Supported: this branch is otherwise unreachable from both
-// resolveAndRun and profile add.
-func TestCheckAgentSupported(t *testing.T) {
-	unsupported := &agent.Spec{
-		Name:   "copilot",
-		Status: agent.Status{Supported: false, Reason: "talks to GitHub's own backend"},
-	}
-	err := checkAgentSupported(unsupported)
-	if err == nil {
-		t.Fatal("expected an error for an unsupported agent")
-	}
-	if !strings.Contains(err.Error(), "copilot") {
-		t.Errorf("error should name the agent, got: %v", err)
-	}
-	if !strings.Contains(err.Error(), "talks to GitHub's own backend") {
-		t.Errorf("error should include the unsupported reason, got: %v", err)
-	}
-
-	supported := &agent.Spec{
-		Name:   "claude",
-		Status: agent.Status{Supported: true},
-	}
-	if err := checkAgentSupported(supported); err != nil {
-		t.Errorf("expected nil for a supported agent, got: %v", err)
-	}
-}
-
-// TestResolveAndRunUnsupportedAgent and TestResolveAndRunUnsupportedPlatform
-// call resolveAndRun directly with a synthetic spec, since the real registry
-// only has claude, which is always Status.Supported and never implements
-// PlatformSupported.
-func TestResolveAndRunUnsupportedAgent(t *testing.T) {
-	h, _ := setupLaunch(t)
-	spec := &agent.Spec{
-		Name:     "nope",
-		Launcher: &fakeLauncher{name: "nope", displayName: "Nope"},
-		Status:   agent.Status{Supported: false, Reason: "talks to its own backend"},
-	}
-
-	root := h.root(&bytes.Buffer{})
-
-	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
-	if err == nil {
-		t.Fatal("expected an error for an unsupported agent")
-	}
-	if !strings.Contains(err.Error(), "talks to its own backend") {
-		t.Errorf("error should include the unsupported reason, got: %v", err)
-	}
-}
-
-func TestResolveAndRunUnsupportedPlatform(t *testing.T) {
-	h, _ := setupLaunch(t)
-	spec := &agent.Spec{
-		Name: "platform-agent",
-		Launcher: &fakePlatformLauncher{
-			fakeLauncher{name: "platform-agent", displayName: "Platform Agent"},
-		},
-		Status: agent.Status{Supported: true},
-	}
-
-	root := h.root(&bytes.Buffer{})
-
-	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
-	if err == nil {
-		t.Fatal("expected an error for an unsupported platform")
-	}
-	if !strings.Contains(err.Error(), "windows is not supported yet") {
-		t.Errorf("error should surface the platform error, got: %v", err)
-	}
-}
-
-func TestResolveAndRunPropagatesGenuineCheckModelError(t *testing.T) {
-	h, _ := setupLaunch(t)
-	wantErr := errors.New("catalog service unreachable")
-	spec := &agent.Spec{
-		Name: "picky",
-		Launcher: &fakeIncompatibleLauncher{
-			fakeLauncher: fakeLauncher{name: "picky", displayName: "Picky"},
-			err:          wantErr,
-		},
-		Status: agent.Status{Supported: true},
-	}
-
-	var stderr bytes.Buffer
-	root := h.root(&stderr)
-
-	err := resolveAndRun(root, &app{svc: h.svc, flags: &globalFlags{}}, spec, "anthropic/claude-opus-4.6", nil)
-	if !errors.Is(err, wantErr) {
-		t.Fatalf("expected the genuine CheckModel error to propagate unchanged, got: %v", err)
-	}
-	// A genuine (non-ErrIncompatibleModel) error must be a hard failure: no
-	// warning, no confirmation prompt.
-	if strings.Contains(stderr.String(), "warning:") {
-		t.Errorf("a genuine CheckModel error should not print a warning, stderr = %q", stderr.String())
-	}
-}
-
 func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 
 	// --yes accepts the compatibility warning without prompting.
 	var stderr bytes.Buffer
@@ -318,7 +126,7 @@ func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 		t.Fatalf("execute: %v", err)
 	}
 
-	if got.Path == "" {
+	if h.ran.Path == "" {
 		t.Error("launch should proceed once confirmed")
 	}
 	// Proceeding alone doesn't prove CheckModel's warning path ran at all
@@ -330,7 +138,7 @@ func TestLaunchIncompatibleModelRequiresConfirmation(t *testing.T) {
 }
 
 func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 
 	var stderr bytes.Buffer
 	root := h.root(&stderr)
@@ -340,7 +148,7 @@ func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute: %v", err)
 	}
-	if got.Path == "" {
+	if h.ran.Path == "" {
 		t.Error("launch should proceed once the user types y")
 	}
 	// As with the --yes sibling test: proceeding alone doesn't prove
@@ -352,7 +160,7 @@ func TestLaunchIncompatibleModelConfirmedViaPrompt(t *testing.T) {
 }
 
 func TestLaunchIncompatibleModelDeclinedCancels(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 
 	root := h.root(&bytes.Buffer{})
 	root.SetIn(strings.NewReader("n\n"))
@@ -362,8 +170,8 @@ func TestLaunchIncompatibleModelDeclinedCancels(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected an error when the user declines the compatibility warning")
 	}
-	if got.Path != "" {
-		t.Errorf("launch should not proceed when declined, got Path = %q", got.Path)
+	if h.ran.Path != "" {
+		t.Errorf("launch should not proceed when declined, got Path = %q", h.ran.Path)
 	}
 }
 
@@ -460,23 +268,16 @@ func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 	h := newHarness(t)
 	stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-
-	prev := runner
-	runner = func(agent.Command) error {
+	h.svc.Run = func(agent.Command) error {
 		return fmt.Errorf("run claude: %w", fakeExitCoder{code: 3})
 	}
-	t.Cleanup(func() { runner = prev })
 
-	var out bytes.Buffer
-	root := h.root(&out)
-	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus-4.6"})
-
-	err := root.Execute()
+	out, err := h.exec("claude", "-m", "anthropic/claude-opus-4.6")
 	if err == nil {
 		t.Fatal("expected the agent's exit error to propagate to main")
 	}
-	if strings.Contains(out.String(), "Error:") {
-		t.Errorf("cobra's own error line should be suppressed for an agent exit code, got: %q", out.String())
+	if strings.Contains(out, "Error:") {
+		t.Errorf("cobra's own error line should be suppressed for an agent exit code, got: %q", out)
 	}
 }
 
@@ -484,31 +285,23 @@ func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 // over-broadly silencing: only an agent exit-code error should suppress
 // cobra's default line, not every failure.
 func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
-	var out bytes.Buffer
-	root := h.root(&out)
-	root.SetArgs([]string{"claude"}) // missing --model
-
-	err := root.Execute()
+	out, err := h.exec("claude") // missing --model
 	if err == nil {
 		t.Fatal("expected an error")
 	}
-	if !strings.Contains(out.String(), "Error:") {
-		t.Errorf("expected cobra's default error line for a non-exit-code error, got: %q", out.String())
+	if !strings.Contains(out, "Error:") {
+		t.Errorf("expected cobra's default error line for a non-exit-code error, got: %q", out)
 	}
 }
 
 func TestLaunchMissingAPIKeyFails(t *testing.T) {
 	h := newHarness(t)
 	stubClaudePath(t)
-	captureRun(t)
 	t.Setenv("OPENROUTER_API_KEY", "")
 
-	root := h.root(&bytes.Buffer{})
-	root.SetArgs([]string{"claude", "-m", "anthropic/claude-opus-4.6"})
-
-	err := root.Execute()
+	_, err := h.exec("claude", "-m", "anthropic/claude-opus-4.6")
 	if err == nil {
 		t.Fatal("expected an error when no API key is available")
 	}

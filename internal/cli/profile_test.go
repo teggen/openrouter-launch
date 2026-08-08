@@ -11,7 +11,7 @@ import (
 )
 
 func TestProfileAddAndList(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
@@ -26,7 +26,7 @@ func TestProfileAddAndList(t *testing.T) {
 }
 
 func TestProfileAddRejectsUnknownAgent(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "add", "--name", "x", "--agent", "nope", "--model", "a/b"})
@@ -41,7 +41,7 @@ func TestProfileAddRejectsUnknownAgent(t *testing.T) {
 }
 
 func TestProfileAddRejectsDuplicate(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
@@ -60,34 +60,34 @@ func TestProfileAddRejectsDuplicate(t *testing.T) {
 }
 
 func TestProfileLaunch(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
 	h.run(t, "profile", "launch", "opus-cc")
 
-	if got.Path != "/usr/local/bin/claude" {
-		t.Errorf("Path = %q, want the claude binary", got.Path)
+	if h.ran.Path != "/usr/local/bin/claude" {
+		t.Errorf("Path = %q, want the claude binary", h.ran.Path)
 	}
-	if len(got.Args) < 2 || got.Args[1] != "anthropic/claude-opus-4.6" {
-		t.Errorf("Args = %v, want the profile's model", got.Args)
+	if len(h.ran.Args) < 2 || h.ran.Args[1] != "anthropic/claude-opus-4.6" {
+		t.Errorf("Args = %v, want the profile's model", h.ran.Args)
 	}
 }
 
 func TestProfileLaunchPassesStoredArgs(t *testing.T) {
-	h, got := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6", "--", "--resume")
 	h.run(t, "profile", "launch", "opus-cc")
 
-	if len(got.Args) != 3 || got.Args[2] != "--resume" {
-		t.Errorf("Args = %v, want the stored --resume", got.Args)
+	if len(h.ran.Args) != 3 || h.ran.Args[2] != "--resume" {
+		t.Errorf("Args = %v, want the stored --resume", h.ran.Args)
 	}
 }
 
 func TestProfileLaunchUnknown(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	root := h.root(&bytes.Buffer{})
 	root.SetArgs([]string{"profile", "launch", "nope"})
@@ -106,7 +106,7 @@ func TestProfileLaunchUnknown(t *testing.T) {
 }
 
 func TestProfileRemove(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
@@ -119,7 +119,7 @@ func TestProfileRemove(t *testing.T) {
 }
 
 func TestProfileRename(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	h.run(t, "profile", "add", "--name", "opus-cc",
 		"--agent", "claude", "--model", "anthropic/claude-opus-4.6")
@@ -135,7 +135,7 @@ func TestProfileRename(t *testing.T) {
 }
 
 func TestProfileListEmpty(t *testing.T) {
-	h, _ := setupLaunch(t)
+	h := setupLaunch(t)
 
 	got := h.run(t, "profile", "list")
 	if !strings.Contains(strings.ToLower(got), "no profiles") {

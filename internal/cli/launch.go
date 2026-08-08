@@ -9,12 +9,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/launch"
 )
-
-// runner performs the process handoff. Tests replace it to capture commands.
-var runner = agent.Run
 
 // newLaunchCmds builds one subcommand per registered agent.
 func newLaunchCmds(a *app) []*cobra.Command {
@@ -40,93 +36,44 @@ func newLaunchCmds(a *app) []*cobra.Command {
 	return cmds
 }
 
-// checkAgentSupported reports why an agent cannot be pointed at OpenRouter.
-func checkAgentSupported(spec *agent.Spec) error {
-	if !spec.Status.Supported {
-		return fmt.Errorf("%s cannot be pointed at OpenRouter: %s", spec.Name, spec.Status.Reason)
-	}
-	return nil
-}
-
-// resolveAndRun validates the request and hands off to the agent.
+// resolveAndRun plans the launch, renders whatever the plan reports, and
+// hands off. All of the decision-making lives in launch.Service; this
+// function is the cobra-flavored rendering of it.
 func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string, extraArgs []string) error {
-	if err := checkAgentSupported(spec); err != nil {
-		return err
-	}
-
-	if platform, ok := spec.Launcher.(agent.PlatformSupported); ok {
-		if err := platform.Supported(); err != nil {
-			return err
-		}
-	}
-
-	if modelID == "" {
-		return fmt.Errorf("a model is required: pass --model <slug> (run %q to browse; the interactive picker arrives in Phase 2)", "openrouter-launch models")
-	}
-
-	if installable, ok := spec.Launcher.(agent.Installable); ok && !installable.CheckInstalled() {
-		return fmt.Errorf("%s is not installed.\n%s", spec.Launcher.DisplayName(), installable.InstallHint())
-	}
-
-	snap, err := loadCatalog(cmd.Context(), a.svc, a.flags.refresh, cmd.ErrOrStderr())
-	if err != nil {
-		return err
-	}
-
-	model, ok := openrouter.FindByID(snap.Models, modelID)
-	if !ok {
-		suggestions := openrouter.Suggest(snap.Models, modelID, 5)
-		if len(suggestions) == 0 {
-			return fmt.Errorf("unknown model %q", modelID)
-		}
-		return fmt.Errorf("unknown model %q. Did you mean:\n  %s",
-			modelID, strings.Join(suggestions, "\n  "))
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return err
-	}
-
-	apiKey, err := config.ResolveAPIKey(cfg)
-	if err != nil {
-		return err
-	}
-
-	if compatible, ok := spec.Launcher.(agent.Compatible); ok {
-		if err := compatible.CheckModel(model); err != nil {
-			if !errors.Is(err, agent.ErrIncompatibleModel) {
-				return err
-			}
-			fmt.Fprintf(cmd.ErrOrStderr(), "warning: %v\n", err)
-			ok, cerr := confirm(cmd, a.flags, "Launch anyway?")
-			if cerr != nil {
-				return cerr
-			}
-			if !ok {
-				return errors.New("cancelled")
-			}
-		}
-	}
-
-	command, err := spec.Launcher.Command(agent.Request{
-		Model:     model,
-		APIKey:    apiKey,
+	plan, err := a.svc.Plan(cmd.Context(), launch.Request{
+		Spec:      spec,
+		ModelID:   modelID,
 		ExtraArgs: extraArgs,
+		Refresh:   a.flags.refresh,
 	})
+	if errors.Is(err, launch.ErrNoModel) {
+		// Phase 2 replaces this branch with the interactive picker. The
+		// planner reports the bare condition; naming a CLI flag is this
+		// layer's job.
+		return fmt.Errorf("a model is required: pass --model <slug> (run %q to browse; "+
+			"the interactive picker arrives in Phase 2)", "openrouter-launch models")
+	}
 	if err != nil {
 		return err
 	}
 
-	// Recorded before handing off, because on Unix the process is replaced
-	// and nothing after runner() executes.
-	cfg.LastAgent = spec.Name
-	cfg.LastModel = model.ID
-	if err := config.Save(cfg); err != nil {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not save last selection: %v\n", err)
+	for _, w := range plan.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+		if w.Question == "" {
+			continue
+		}
+		ok, cerr := confirm(cmd, a.flags, w.Question)
+		if cerr != nil {
+			return cerr
+		}
+		if !ok {
+			return errors.New("cancelled")
+		}
 	}
 
-	if err := runner(command); err != nil {
+	if err := a.svc.Launch(plan, func(w launch.Warning) {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+	}); err != nil {
 		if isAgentExitError(err) {
 			// On Windows, agent.Run waits for the child instead of replacing
 			// the process (exec_windows.go), so a nonzero exit reaches here

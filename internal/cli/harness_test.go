@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/launch"
 )
 
@@ -14,6 +15,8 @@ import (
 // used to carry for this purpose.
 type harness struct {
 	svc *launch.Service
+	// ran is the command the handoff would have executed.
+	ran agent.Command
 }
 
 func newHarness(t *testing.T) *harness {
@@ -22,9 +25,15 @@ func newHarness(t *testing.T) *harness {
 	t.Setenv("XDG_CACHE_HOME", dir)
 	t.Setenv("XDG_CONFIG_HOME", dir)
 
-	// Run stays nil until Task 7: resolveAndRun still calls the package
-	// runner, which launch tests stub with captureRun.
-	return &harness{svc: &launch.Service{Catalog: &fakeCatalog{models: fakeModels()}}}
+	h := &harness{}
+	h.svc = &launch.Service{
+		Catalog: &fakeCatalog{models: fakeModels()},
+		Run: func(c agent.Command) error {
+			h.ran = c
+			return nil
+		},
+	}
+	return h
 }
 
 // root returns a fresh command tree with both streams writing into out.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/launch"
 )
 
 func newProfileCmd(a *app) *cobra.Command {
@@ -64,7 +65,7 @@ func newProfileAddCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := checkAgentSupported(spec); err != nil {
+			if err := launch.CheckSupported(spec); err != nil {
 				return err
 			}
 

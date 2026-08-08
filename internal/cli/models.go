@@ -3,9 +3,11 @@ package cli
 import (
 	"fmt"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
+	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
@@ -21,9 +23,12 @@ func newModelsCmd(a *app) *cobra.Command {
 				filter.Search = args[0]
 			}
 
-			snap, err := loadCatalog(cmd.Context(), a.svc, a.flags.refresh, cmd.ErrOrStderr())
+			snap, err := a.svc.Snapshot(cmd.Context(), a.flags.refresh)
 			if err != nil {
 				return err
+			}
+			if w, ok := launch.StaleWarning(snap, time.Now()); ok {
+				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
 			}
 
 			models := openrouter.Apply(snap.Models, filter)
