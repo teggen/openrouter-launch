@@ -338,7 +338,7 @@ func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, 
 
 	// The API key is the one failure this screen can fix in place.
 	if errors.Is(err, config.ErrNoAPIKey) {
-		return s.promptForAPIKey(err)
+		return s.promptForAPIKey(err, lines)
 	}
 
 	var notInstalled *launch.NotInstalledError
@@ -405,12 +405,23 @@ func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, 
 	return stateDone, err
 }
 
-func (s *session) promptForAPIKey(planErr error) (state, error) {
+// promptForAPIKey collects and saves an API key, then retries planning.
+//
+// lines carries any warnings launch.Plan accumulated before its ErrNoAPIKey
+// guard — see handlePlanError and launch.Plan's doc comment, "Callers must
+// render Plan.Warnings before inspecting err." Both dead ends below (the
+// keyPrompted guard tripping, and the user declining to enter a key) render
+// lines before returning, or that fact — often the very reason the catalog
+// looked wrong in the first place — reaches no screen at all.
+func (s *session) promptForAPIKey(planErr error, lines []string) (state, error) {
 	if s.keyPrompted {
 		// A key was already collected and the retry still reports none, so
 		// the save must have failed or the value was unusable. Prompting
 		// again would loop forever.
-		return stateDone, planErr
+		return s.noticeThenDone(noticeInput{
+			Title: "Could not plan the launch",
+			Lines: append(lines, planErr.Error()),
+		}, planErr)
 	}
 
 	key, ok, err := s.sc.prompt(promptInput{
@@ -428,7 +439,13 @@ func (s *session) promptForAPIKey(planErr error) (state, error) {
 		return stateDone, err
 	}
 	if !ok {
-		return s.retreat(s.backState())
+		if len(lines) == 0 {
+			return s.retreat(s.backState())
+		}
+		return s.noticeThen(noticeInput{
+			Title: "Could not plan the launch",
+			Lines: lines,
+		}, s.backState())
 	}
 
 	cfg, err := config.Load()
@@ -528,6 +545,17 @@ func (s *session) retreat(next state) (state, error) {
 		return stateDone, ErrCancelled
 	}
 	return next, nil
+}
+
+// noticeThenDone shows a notice and ends the session with err — a genuine
+// planning failure, not a user-initiated cancellation, so err rather than
+// ErrCancelled is what Run returns. ctrl+c on the notice still takes
+// precedence over err, matching every other notice in this file.
+func (s *session) noticeThenDone(in noticeInput, err error) (state, error) {
+	if nerr := s.sc.notice(in); nerr != nil {
+		return stateDone, nerr
+	}
+	return stateDone, err
 }
 
 // noticeThen shows a notice and then moves to next. A notice screen failing

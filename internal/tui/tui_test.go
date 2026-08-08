@@ -1095,3 +1095,82 @@ func TestRunEscFromTheKeyPromptOffersItAgainOnASecondAttempt(t *testing.T) {
 		t.Error("the retry after the second key prompt did not produce a command")
 	}
 }
+
+// launch.Plan's doc comment states the contract: warnings accumulated before
+// a fatal guard are returned alongside err, not discarded. promptForAPIKey
+// used to drop them on both of its dead-end returns. This puts a user
+// through an offline, stale-cache session with no API key: they decline the
+// key prompt, and the stale warning — the one fact explaining why the
+// catalog may be wrong — must still reach a notice, not vanish.
+func TestRunDecliningTheAPIKeyPromptRendersAccumulatedWarnings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(config.APIKeyEnvVar, "")
+	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
+
+	svc := &launch.Service{
+		Catalog: erroringCatalog{},
+		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
+	}
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
+			{Kind: pickBack},
+		},
+		prompt: []promptResult{{ok: false}},
+	}
+	s.root = append(s.root, rootChoice{Kind: choiceCancel})
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	joined := strings.Join(s.noticeIn[0].Lines, "\n")
+	if !strings.Contains(joined, "could not refresh the model catalog") {
+		t.Errorf("notice = %q, is missing the stale-catalog warning (dropped on the ErrNoAPIKey branch)", joined)
+	}
+}
+
+// The mirror of the test above for promptForAPIKey's other dead end: the
+// retry-exhausted guard. Same stale-catalog setup, but the saved key still
+// does not resolve, so the guard trips instead of the user declining.
+func TestRunAPIKeyRetryExhaustedRendersAccumulatedWarnings(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(config.APIKeyEnvVar, "")
+	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
+
+	svc := &launch.Service{
+		Catalog: erroringCatalog{},
+		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
+	}
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		// The fake bypasses Validate, so an empty key reaches the config and
+		// ResolveAPIKey rejects it again on the retry — same trick as
+		// TestRunDoesNotLoopWhenTheSavedKeyStillDoesNotResolve.
+		prompt: []promptResult{{value: "", ok: true}},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if err == nil {
+		t.Fatal("run succeeded with an unusable API key")
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	joined := strings.Join(s.noticeIn[0].Lines, "\n")
+	if !strings.Contains(joined, "could not refresh the model catalog") {
+		t.Errorf("notice = %q, is missing the stale-catalog warning (dropped on the ErrNoAPIKey branch)", joined)
+	}
+}
