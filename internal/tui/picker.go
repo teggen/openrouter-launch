@@ -14,9 +14,12 @@ const (
 	// defaultListHeight is used before the first WindowSizeMsg arrives, so
 	// the picker renders something rather than nothing on its first frame.
 	defaultListHeight = 10
-	// chromeHeight is the non-list part of the view: title, blank lines, the
-	// fixed description pane, the status line, and the key footer.
-	chromeHeight = 10
+	// chromeHeight is the non-list part of the view: the title line, the
+	// blank line under it, the blank line after the list, the two
+	// description-pane lines, the blank line before the status line, the
+	// status line, and the key footer — 8 lines, measured at terminal
+	// heights 24 and 40.
+	chromeHeight = 8
 	// descriptionHeight is fixed on purpose. See descriptionLines.
 	descriptionHeight = 2
 )
@@ -279,7 +282,7 @@ func (m pickerModel) View() string {
 			b.WriteString("\n")
 			continue
 		}
-		row := modelRow(m.visible[idx])
+		row := clampRow(modelRow(m.visible[idx]), m.width)
 		if idx == m.cursor {
 			b.WriteString("  " + cursorGutter(true) + selectedStyle.Render(row) + "\n")
 		} else {

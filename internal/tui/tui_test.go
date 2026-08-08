@@ -580,6 +580,48 @@ func TestRunSkipsConfirmWhenThereAreNoWarnings(t *testing.T) {
 	}
 }
 
+// The acknowledge-mode branch of stepConfirm — warnings present, none
+// carrying a Question — had no driver coverage at all. It is a whole
+// user-visible mode (an enter/esc footer instead of a y/N question), driven
+// here by the most common warning: a stale catalog.
+func TestRunStepConfirmAcknowledgeModeForAStaleCatalog(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv(config.APIKeyEnvVar, "test-key")
+	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
+
+	svc := &launch.Service{
+		Catalog: erroringCatalog{},
+		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
+	}
+	spec := stubSpec("claude")
+	s := &script{
+		t:       t,
+		root:    []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:    []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		confirm: []confirmResult{{ok: true}},
+	}
+
+	plan, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(s.confirmIn) != 1 {
+		t.Fatalf("confirm shown %d times, want 1", len(s.confirmIn))
+	}
+	if s.confirmIn[0].Question != "" {
+		t.Errorf("question = %q, want empty (acknowledge mode)", s.confirmIn[0].Question)
+	}
+	joined := strings.Join(s.confirmIn[0].Lines, "\n")
+	if !strings.Contains(joined, "could not refresh the model catalog") {
+		t.Errorf("confirm lines = %q, missing the stale-catalog warning", joined)
+	}
+	if plan.Model.ID == "" {
+		t.Error("acknowledging the warning did not produce a plan")
+	}
+}
+
 func TestRunAsksTheWarningsOwnQuestion(t *testing.T) {
 	svc, _ := newTestService(t)
 	spec := incompatibleSpec()
@@ -751,6 +793,36 @@ func TestRunUnsupportedAgentWithAgentSetIsFatal(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(s.noticeIn[0].Lines, " "), "custom endpoint") {
 		t.Errorf("notice = %+v, does not carry the registry's stated reason", s.noticeIn[0])
+	}
+}
+
+// Same shape as TestRunNotInstalledWithAgentSetIsFatal and
+// TestRunUnsupportedAgentWithAgentSetIsFatal, for the third of the three
+// agent-fatal guards in handlePlanError: with no root to return to, a
+// platform the agent cannot run on must end the session with
+// UnsupportedPlatformError, not a clean ErrCancelled.
+func TestRunUnsupportedPlatformWithAgentSetIsFatal(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := platformBlockedSpec("droid", "windows is not supported yet")
+
+	opts := stubOptions(svc, spec)
+	opts.Agent = spec
+
+	s := &script{t: t, pick: []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}}}
+
+	_, err := run(context.Background(), opts, s.screens())
+	if errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want a real error, not ErrCancelled", err)
+	}
+	var platform *launch.UnsupportedPlatformError
+	if !errors.As(err, &platform) {
+		t.Fatalf("err = %v, want *launch.UnsupportedPlatformError", err)
+	}
+	if len(s.noticeIn) != 1 {
+		t.Fatalf("notices = %d, want 1", len(s.noticeIn))
+	}
+	if !strings.Contains(strings.Join(s.noticeIn[0].Lines, " "), "windows is not supported yet") {
+		t.Errorf("notice = %+v, does not carry the platform error", s.noticeIn[0])
 	}
 }
 

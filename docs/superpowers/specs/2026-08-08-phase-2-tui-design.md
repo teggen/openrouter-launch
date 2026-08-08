@@ -22,7 +22,8 @@ In:
 - Model picker: type-to-search, four filters, description pane, `ctrl+s`
   profile save.
 - Filter persistence to `config.filters`.
-- API-key prompt on first launch that needs one, with an offer to save it.
+- API-key prompt on first launch that needs one. The key is saved to config
+  unconditionally, and the prompt discloses this before the user types.
 - Error screens rendering the planner's typed errors.
 
 Out, with reasons:
@@ -288,7 +289,7 @@ therefore needs a real notice screen, not an "impossible" branch.
 | `esc` from root, `ctrl+c` anywhere | `ErrCancelled`; `cli` exits 0 silently — backing out is not a failure |
 | Catalog load fails, no cache | `Run` returns the error; there is nothing to pick from |
 | Catalog stale | Picker opens on cached data; the stale `Warning` reaches the confirm screen and stderr |
-| `ErrNoAPIKey` at plan time | Masked prompt, offer to save to config, retry the plan |
+| `ErrNoAPIKey` at plan time | Masked prompt, disclosing that the key is saved unconditionally to config before the user types, then retry the plan. No offer/decline: `config.ResolveAPIKey` reads the key from config or the environment only, so a decline-and-still-launch path would need a new override threaded through `internal/launch` |
 | `NotInstalledError` | Notice screen with `Hint`; `esc` returns to **root**, not the picker — a different model cannot fix a missing binary, but a different agent can. `Plan` deliberately checks the empty model before the install so the picker is still reachable with nothing installed |
 | `UnknownModelError` (profile path) | Notice screen listing `Suggestions`; `esc` returns to root |
 | `UnsupportedAgentError` (profile path) | Notice screen with `Reason`; `esc` returns to root |

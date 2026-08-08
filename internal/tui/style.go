@@ -42,6 +42,21 @@ func modelRow(m openrouter.Model) string {
 		tools)
 }
 
+// clampRow truncates row to fit within width, once the 2-column indent and
+// 2-column cursor gutter it is about to be wrapped in are accounted for.
+// Below roughly 75 columns an unclamped row wraps in the terminal, which
+// breaks the picker's fixed-list-height guarantee the scrolling math is
+// built on. width <= 0 means the terminal size is not yet known (before the
+// first WindowSizeMsg), so the row renders at its natural width instead of
+// being clamped to nothing.
+func clampRow(row string, width int) string {
+	avail := width - 4
+	if avail <= 0 {
+		return row
+	}
+	return truncate(row, avail)
+}
+
 // truncate shortens s to at most n runes, marking the cut with an ellipsis.
 // Runes, not bytes: descriptions are not ASCII, and a byte-wise cut would
 // emit invalid UTF-8.

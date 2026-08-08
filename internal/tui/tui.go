@@ -425,7 +425,12 @@ func (s *session) promptForAPIKey(planErr error, lines []string) (state, error) 
 	}
 
 	key, ok, err := s.sc.prompt(promptInput{
-		Title:  "An OpenRouter API key is needed to launch",
+		// This is the only credential the tool writes to disk, and the only
+		// path around it is the environment variable — see config.go's
+		// ResolveAPIKey and the design spec's note on why saving stays
+		// unconditional. The prompt discloses that before the user types,
+		// rather than saving silently.
+		Title:  "An OpenRouter API key is needed to launch.\nIt's saved to ~/.config/openrouter-launch/config.json (mode 0600).",
 		Label:  "API key",
 		Masked: true,
 		Validate: func(v string) error {
@@ -520,8 +525,17 @@ func (s *session) takeRefresh() bool {
 	return r
 }
 
-// rootOrDone is where to go when the problem is the agent itself. With
-// Options.Agent set there is no root screen to return to.
+// rootOrDone is where backState() falls back to when the current attempt
+// did not come from the picker.
+//
+// Its opts.Agent != nil branch is unreachable from backState(), its sole
+// remaining caller: whenever Options.Agent is set, the session starts
+// directly at the picker and stepRoot (the only place that clears
+// fromPicker) never runs, so fromPicker is always true by the time
+// backState() would fall through to this function — backState() returns
+// statePicker first instead. The branch stays as defense in depth rather
+// than being removed: see HANDOFF.md item 15 for why this function must not
+// change, and do not change it here either.
 func (s *session) rootOrDone() state {
 	if s.opts.Agent != nil {
 		return stateDone

@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"errors"
+
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
@@ -61,8 +63,36 @@ func unsupportedSpec(name, reason string) *agent.Spec {
 	return s
 }
 
+// platformBlockedLauncher additionally implements agent.PlatformSupported,
+// reporting the agent as unable to run on this platform — the guard
+// launch.Plan checks right after CheckSupported, distinct from
+// unsupportedSpec's Status.Supported guard.
+type platformBlockedLauncher struct {
+	stubLauncher
+	reason string
+}
+
+func (p *platformBlockedLauncher) Supported() error { return errors.New(p.reason) }
+
+// platformBlockedSpec builds a supported (Status.Supported true), installed
+// agent whose launcher itself refuses to run on this platform.
+func platformBlockedSpec(name, reason string) *agent.Spec {
+	return &agent.Spec{
+		Name: name,
+		Launcher: &platformBlockedLauncher{
+			stubLauncher: stubLauncher{
+				name: name, display: name, installed: true,
+				command: agent.Command{Path: "/bin/" + name, Args: []string{name}},
+			},
+			reason: reason,
+		},
+		Status: agent.Status{Supported: true},
+	}
+}
+
 var (
-	_ agent.Launcher    = (*stubLauncher)(nil)
-	_ agent.Installable = (*stubLauncher)(nil)
-	_ agent.Compatible  = (*stubLauncher)(nil)
+	_ agent.Launcher          = (*stubLauncher)(nil)
+	_ agent.Installable       = (*stubLauncher)(nil)
+	_ agent.Compatible        = (*stubLauncher)(nil)
+	_ agent.PlatformSupported = (*platformBlockedLauncher)(nil)
 )

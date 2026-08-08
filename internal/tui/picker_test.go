@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
@@ -92,6 +93,20 @@ func TestPickerAltCCyclesTheContextFloor(t *testing.T) {
 	}
 }
 
+// At $1 only the free model qualifies: opus ($75) and o1-mini ($4.40) are
+// both over the ceiling. The plan got this exact interaction wrong once — a
+// free model clears any positive ceiling — so the boundary itself, not just
+// the numeric filter value, is what needs pinning.
+func TestPickerAltPAtOneDollarCeilingKeepsOnlyTheFreeModel(t *testing.T) {
+	m := press(t, pickerFixture(), altKey('p'))
+	if m.filters.maxPrice != 1 {
+		t.Fatalf("maxPrice = %v, want 1", m.filters.maxPrice)
+	}
+	if got := visibleIDs(m); len(got) != 1 || got[0] != "qwen/qwen3-coder:free" {
+		t.Errorf("visible at $1 = %v, want only the free model", got)
+	}
+}
+
 func TestPickerAltPCyclesThePriceCeiling(t *testing.T) {
 	m := press(t, pickerFixture(), altKey('p'))
 	if m.filters.maxPrice != 1 {
@@ -150,6 +165,15 @@ func TestPickerCtrlSRequestsAProfileSaveForTheHighlightedModel(t *testing.T) {
 	}
 	if m.choice.ModelID != "anthropic/claude-opus-4.6" {
 		t.Errorf("save carried %q, want the highlighted model", m.choice.ModelID)
+	}
+}
+
+// pickerChoice.Filters' doc says filters ride every exit; pickModel and
+// pickBack were pinned (below), but ctrl+s was not.
+func TestPickerCtrlSCarriesTheLiveFilters(t *testing.T) {
+	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyCtrlS))
+	if !m.choice.Filters.freeOnly {
+		t.Error("ctrl+s dropped the live filter state")
 	}
 }
 
@@ -358,6 +382,28 @@ func TestPickerViewSaysSoWhenNothingMatches(t *testing.T) {
 	got := m.View()
 	if !strings.Contains(got, "0 of 3") {
 		t.Errorf("View = %q, does not show that filtering emptied the list", got)
+	}
+}
+
+// modelRow renders 71 columns; with the 2-column indent and 2-column cursor
+// gutter, an unclamped row is 75 columns — wider than a lot of real
+// terminals. Below that, an unclamped row wraps, breaking the fixed-height
+// guarantee the scrolling math in listHeight/clampScroll depends on.
+func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
+	const width = 40
+	m := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+	})
+
+	lines := strings.Split(m.View(), "\n")
+	h := m.listHeight()
+	// Row lines start right after the title line and the blank line under
+	// it (see picker.go's View): index 2 through 2+h-1.
+	for i := 0; i < h; i++ {
+		line := lines[2+i]
+		if got := lipgloss.Width(line); got > width {
+			t.Errorf("row line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
+		}
 	}
 }
 
