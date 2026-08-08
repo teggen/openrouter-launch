@@ -381,3 +381,78 @@ func TestLaunchStaleCatalogWarningSurvivesUnknownModelError(t *testing.T) {
 		t.Errorf("stderr should contain the unknown-model error, got: %q", out)
 	}
 }
+
+// TestLaunchRendersStaleThenCompatibilityThenPrompt pins the full rendered
+// order on the success path: the stale-catalog notice, then the
+// compatibility warning, then the "Launch anyway?" confirmation prompt. The
+// ordering is the contract - a stale-catalog notice printed after the user
+// had already answered the prompt would arrive too late to inform their
+// answer, and so would be useless to them.
+func TestLaunchRendersStaleThenCompatibilityThenPrompt(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	stubClaudePath(t)
+
+	path, err := openrouter.CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data, err := json.Marshal(struct {
+		FetchedAt time.Time          `json:"fetched_at"`
+		Models    []openrouter.Model `json:"models"`
+	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: fakeModels()}) // older than DefaultTTL
+	if err != nil {
+		t.Fatalf("marshal cache file: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	h := &harness{}
+	h.svc = &launch.Service{
+		Catalog: erroringCatalog{}, // forces the stale-cache fallback
+		Run:     func(c agent.Command) error { h.ran = c; return nil },
+	}
+
+	var stderr bytes.Buffer
+	root := h.root(&stderr)
+	root.SetIn(strings.NewReader("y\n"))
+	// qwen/qwen3-coder:free is in the cached fixture set but its provider
+	// isn't anthropic, so Claude's CheckModel raises the advisory
+	// ErrIncompatibleModel warning alongside the stale-catalog one.
+	root.SetArgs([]string{"claude", "-m", "qwen/qwen3-coder:free"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+
+	out := stderr.String()
+	staleIdx := strings.Index(out, "could not refresh the model catalog")
+	compatIdx := strings.Index(out, "optimized for anthropic/* models")
+	promptIdx := strings.Index(out, "Launch anyway?")
+
+	if staleIdx == -1 {
+		t.Fatalf("stderr should contain the stale-catalog warning, got: %q", out)
+	}
+	if compatIdx == -1 {
+		t.Fatalf("stderr should contain the compatibility warning, got: %q", out)
+	}
+	if promptIdx == -1 {
+		t.Fatalf("stderr should contain the confirmation prompt, got: %q", out)
+	}
+	if !(staleIdx < compatIdx && compatIdx < promptIdx) {
+		t.Errorf("expected stale (%d) < compatibility (%d) < prompt (%d), got: %q",
+			staleIdx, compatIdx, promptIdx, out)
+	}
+
+	// The launch must actually have proceeded, or the ordering above would
+	// hold vacuously on a path that failed before reaching the prompt.
+	if h.ran.Path == "" {
+		t.Error("launch should have proceeded once the user typed y")
+	}
+}
