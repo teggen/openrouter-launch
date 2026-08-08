@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
@@ -96,10 +98,10 @@ func TestModelRowNeverRendersUnknownPricingAsFree(t *testing.T) {
 	}
 }
 
-// Both gutters must be the same width or every row shifts horizontally as
-// the cursor moves through the list.
+// Both gutters must occupy the same number of display columns so rows
+// do not shift horizontally as the cursor moves through the list.
 func TestCursorGutterWidthIsStable(t *testing.T) {
-	if a, b := len([]rune(cursorGutter(true))), len([]rune(cursorGutter(false))); a != b {
+	if a, b := lipgloss.Width(cursorGutter(true)), lipgloss.Width(cursorGutter(false)); a != b {
 		t.Errorf("gutter widths differ: selected=%d unselected=%d", a, b)
 	}
 }
