@@ -1,6 +1,7 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-07 · **State:** Phase 1 complete, pushed to `main`
+**Last updated:** 2026-08-08 · **State:** Phase 1 complete, Phase 2's
+prerequisite refactor complete — both pushed to `main`
 
 Read this first if you are picking the project up with no prior context.
 
@@ -31,7 +32,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, Linux/macOS/Windows cross-build |
 | Agents shipped | Claude Code only |
-| Phase 2 | Not started — bubbletea TUI |
+| Phase 2 | Prerequisite refactor **done** (`internal/launch`, see below); the bubbletea TUI itself is not started |
 
 Working commands, all smoke-tested against the live API:
 
@@ -47,15 +48,18 @@ openrouter-launch profile list|launch|rm|rename
 ## Where things are
 
 ```
-docs/superpowers/specs/2026-08-07-openrouter-launch-design.md   the spec — read for WHY
-docs/superpowers/plans/2026-08-07-phase-1-core.md               the Phase 1 plan
-.superpowers/sdd/progress.md                                    build ledger (gitignored)
-.superpowers/sdd/*-report.md                                    per-task reports (gitignored)
+docs/superpowers/specs/2026-08-07-openrouter-launch-design.md            the spec — read for WHY
+docs/superpowers/specs/2026-08-07-phase-2-planner-refactor-design.md     spec for the internal/launch refactor
+docs/superpowers/plans/2026-08-07-phase-1-core.md                        the Phase 1 plan
+docs/superpowers/plans/2026-08-07-phase-2-planner-refactor.md            the plan that built internal/launch
+.superpowers/sdd/progress.md                                             build ledger (gitignored)
+.superpowers/sdd/*-report.md                                             per-task reports (gitignored)
 
 main.go                      entry point + exit-code extraction
 internal/openrouter/         model type, HTTP catalog client, disk cache, filters
 internal/config/             XDG config, API key resolution, profile CRUD
 internal/agent/              Launcher interface, registry, Claude launcher, process handoff
+internal/launch/             the terminal-free planner: guards, warnings, typed conditions
 internal/cli/                cobra command tree
 ```
 
@@ -119,8 +123,12 @@ If you touch `ExecArgs`, re-run its mutation check.
 `--max-price` exclude it, and it renders as `"?"`. Decoding stays tolerant so one
 malformed catalog entry cannot break every launch.
 
-**5. Save the last selection BEFORE the process handoff.** On Unix `agent.Run`
-uses `syscall.Exec` and replaces the process — nothing after it executes.
+**5. Save the last selection BEFORE the process handoff.** Lives in
+`launch.Service.Launch` (`internal/launch/handoff.go`), which calls
+`recordSelection` and then hands off in one function so no call site can
+invert the order — it used to live in `resolveAndRun`, which is why the two
+are no longer allowed to drift apart. On Unix `agent.Run` uses `syscall.Exec`
+and replaces the process — nothing after it executes.
 
 **6. Zero-touch is absolute.** The only two write sites in the entire tree are
 `$XDG_CACHE_HOME/openrouter-launch/models.json` and
@@ -144,48 +152,40 @@ the temp file *before* the write. It holds an API key.
 
 **10. `Spec.Launcher` must never be nil.** `buildIndex` panics at package init if
 it is. Phase 2 adds unsupported-agent specs — give them a stub launcher, don't
-remove the panic. `newLaunchCmds` runs inside `NewRootCmd()`, so a nil launcher
-would crash the binary on *every* invocation, not just one subcommand.
+remove the panic. `newLaunchCmds` runs inside `NewRootCmdWith` (called by both
+`NewRootCmd` and every CLI test harness via `NewRootCmdWith(h.svc)`), so a nil
+launcher would crash the binary — and every test — on construction, not just
+one subcommand.
 
-## Phase 2 — the prerequisite refactor
+## Phase 2 — the TUI
 
-Phase 2 is the bubbletea TUI: a root screen listing profiles and agents, and a
-model picker with search and the four filters. The final review assessed the
-structure as ready, with **one boundary drawn in the wrong place**:
+The prerequisite refactor is **done**. `internal/launch` now owns the launch
+sequence and never touches the terminal:
 
-> `resolveAndRun` (`internal/cli/launch.go`) takes a `*cobra.Command`, does its own
-> IO through `cmd.ErrOrStderr()`, prompts interactively via `confirm(cmd, ...)`,
-> and returns errors for cobra to print. A bubbletea program cannot call it — it
-> owns the terminal, and a mid-flight `warning: ...` plus `[y/N] ` written to
-> stderr will corrupt the frame.
+- `launch.Service{Catalog, Run}` carries both seams as nilable fields. The
+  `cli.runner` and `cli.catalogSource` globals are gone; `NewRootCmdWith`
+  takes the service, and the TUI will take the same instance.
+- `Service.Plan` runs the nine guards and returns a built `agent.Command`
+  plus `[]Warning`. A `Warning` with a non-empty `Question` is one the
+  caller must confirm.
+- Hard stops are typed errors carrying their data: `NotInstalledError.Hint`,
+  `UnknownModelError.Suggestions`, `UnsupportedAgentError.Reason`.
+- `Service.Launch` records the selection and hands off in one function, so
+  Landmine 5's ordering cannot be inverted by a call site. Its `warn`
+  callback exists because on Unix nothing after the handoff runs.
+- `launch.MergeFilters` bridges `config.Filters` and `openrouter.Filter`.
+  `models` reads persisted filters; only the TUI will write them.
 
-**Do this before writing any TUI code**, not after — retrofitting it means
-rewriting both call sites:
+Still to do for the TUI itself:
 
-1. Split `resolveAndRun` into a **pure planner**:
-   `(spec, modelID, args) → (agent.Command, []Warning, error)`, returning the
-   compatibility warning and the not-installed condition **as values**. Let cobra
-   and bubbletea each render and confirm in their own idiom. Preserve the guard
-   *sequence* verbatim: support → platform → install → catalog → key → compat →
-   build → **save** → handoff.
-2. `loadCatalog` already takes an `io.Writer` for warnings — in the TUI, turn that
-   into a returned value or a `tea.Msg` rather than a writer.
-3. Add the `config.Filters` ↔ `openrouter.Filter` bridge. It does not exist.
-   `newModelsCmd` binds flags into a zero-valued `Filter` and never consults
-   `cfg.Filters`. You will also need `cmd.Flags().Changed(name)` to distinguish
-   "unset" from an explicit `--tools=false`.
-4. Reconsider the mutable global test seams (`cli.runner`, `cli.catalogSource`,
-   the exported `LookPath` on the registry's shared `&Claude{}`). Fine for
-   sequential CLI tests; awkward once a background refresh goroutine and a live
-   selector coexist. Passing the `Catalog` into the TUI model is the natural move.
-5. Trivial: the `modelID == ""` hard error becomes the "open the picker" branch,
-   and root gains a `RunE` for the bare invocation.
-
-What already fits with no change: `Cache.Load` returns provenance
-(`FetchedAt`/`Stale`/`StaleErr`/`Age`) for the background-refresh story;
-`Filter`/`Apply` are pure functions over a slice; `agent.List()` + `Status` +
-`Installed()` give the root screen everything; `config.Profile` CRUD, `Filters`,
-`LastAgent`/`LastModel` are built and currently unused, pre-fitted for the TUI.
+1. Root gains a `RunE` for bare invocation.
+2. The `launch.ErrNoModel` branch in `resolveAndRun` becomes "open the
+   picker" instead of an error.
+3. `internal/tui` imports `internal/launch`. It must never import
+   `internal/cli` — `cli` imports `tui`, so that would be a cycle. This is
+   why the planner is its own package.
+4. Reconsider the shared mutable `&Claude{}` in the registry if a background
+   refresh goroutine ever races the `LookPath` field tests patch.
 
 ## Phase 3+ — more agents
 
@@ -235,4 +235,14 @@ go test ./... -count=1
 go vet ./... && gofmt -l .
 GOOS=windows go build ./... && GOOS=darwin go build ./...
 go build -o /tmp/orl . && /tmp/orl agents
+/tmp/orl models --tools=false | head -5
+/tmp/orl models | head -5
 ```
+
+The last two hit the live OpenRouter API. Bare `models` should be a subset of
+`models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
+and a coding agent without tool calling is unusable, so the unfiltered form
+only widens the list. If you have ever persisted a config with
+`Filters.ToolsOnly: false` (`$XDG_CONFIG_HOME/openrouter-launch/config.json`),
+that saved value wins over the built-in default and the two commands will
+list the same models — check the file before assuming a bug.
