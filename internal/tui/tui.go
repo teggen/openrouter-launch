@@ -424,13 +424,23 @@ func (s *session) promptForAPIKey(planErr error, lines []string) (state, error) 
 		}, planErr)
 	}
 
+	// config.Path() honors XDG_CONFIG_HOME; a hardcoded ~/.config/... path
+	// would tell some users their key is going somewhere it is not. When the
+	// path cannot be resolved (e.g. os.UserHomeDir failing), the disclosure
+	// falls back to wording that names no file rather than either lying or
+	// putting a raw error into a prompt title.
+	keyPath := "your config file"
+	if path, perr := config.Path(); perr == nil {
+		keyPath = path
+	}
+
 	key, ok, err := s.sc.prompt(promptInput{
 		// This is the only credential the tool writes to disk, and the only
 		// path around it is the environment variable — see config.go's
 		// ResolveAPIKey and the design spec's note on why saving stays
 		// unconditional. The prompt discloses that before the user types,
 		// rather than saving silently.
-		Title:  "An OpenRouter API key is needed to launch.\nIt's saved to ~/.config/openrouter-launch/config.json (mode 0600).",
+		Title:  "An OpenRouter API key is needed to launch.\nIt's saved to " + keyPath + " (mode 0600).",
 		Label:  "API key",
 		Masked: true,
 		Validate: func(v string) error {

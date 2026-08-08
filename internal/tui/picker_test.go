@@ -388,8 +388,8 @@ func TestPickerViewSaysSoWhenNothingMatches(t *testing.T) {
 
 // modelRow renders 71 columns; with the 2-column indent and 2-column cursor
 // gutter, an unclamped row is 75 columns — wider than a lot of real
-// terminals. Below that, an unclamped row wraps, breaking the fixed-height
-// guarantee the scrolling math in listHeight/clampScroll depends on.
+// terminals. clampRow keeps rows within width itself (with an explicit "…"
+// marker) rather than leaning on the renderer, which would truncate silently.
 func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
 	const width = 40
 	m := newPickerModel(pickerInput{

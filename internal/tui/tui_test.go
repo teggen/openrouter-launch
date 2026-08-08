@@ -1087,6 +1087,46 @@ func TestRunPromptsForTheAPIKeyAndRetries(t *testing.T) {
 	}
 }
 
+// The one deliberate user-facing decision behind promptForAPIKey's title: it
+// must tell the user their key is being written to disk, and it must name
+// the file config.Path() actually resolves — not a hardcoded
+// ~/.config/openrouter-launch/config.json that lies under a non-default
+// XDG_CONFIG_HOME. newTestService already points XDG_CONFIG_HOME at a temp
+// dir, so a hardcoded path would show up here as a mismatch even without a
+// real custom XDG_CONFIG_HOME in play.
+func TestRunAPIKeyPromptNamesTheResolvedConfigPathAndSaysItSaves(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv(config.APIKeyEnvVar, "") // force the key guard
+
+	wantPath, err := config.Path()
+	if err != nil {
+		t.Fatalf("config.Path: %v", err)
+	}
+
+	spec := stubSpec("claude")
+	s := &script{
+		t:      t,
+		root:   []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:   []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		prompt: []promptResult{{value: "sk-or-typed", ok: true}},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(s.promptIn) != 1 {
+		t.Fatalf("prompt shown %d times, want 1", len(s.promptIn))
+	}
+
+	title := s.promptIn[0].Title
+	if !strings.Contains(title, wantPath) {
+		t.Errorf("title = %q, missing the resolved config path %q", title, wantPath)
+	}
+	if !strings.Contains(strings.ToLower(title), "saved") {
+		t.Errorf("title = %q, does not tell the user the key will be saved", title)
+	}
+}
+
 func TestRunCancellingTheAPIKeyPromptDoesNotLaunch(t *testing.T) {
 	svc, _ := newTestService(t)
 	t.Setenv(config.APIKeyEnvVar, "")
