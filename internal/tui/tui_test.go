@@ -87,6 +87,16 @@ func seedCatalogCache(t *testing.T, fetchedAt time.Time) {
 type promptResult struct {
 	value string
 	ok    bool
+	// err lets a test script ctrl+c: the driver's prompt closure returns
+	// ErrCancelled on ctrl+c (see program.go), never a plain (value, false).
+	err error
+}
+
+// confirmResult mirrors promptResult: ok is the plain y/n answer, and err
+// lets a test script ctrl+c the same way the real confirm closure does.
+type confirmResult struct {
+	ok  bool
+	err error
 }
 
 // script queues one return value per screen call and records every input.
@@ -99,7 +109,12 @@ type script struct {
 	root    []rootChoice
 	pick    []pickerChoice
 	prompt  []promptResult
-	confirm []bool
+	confirm []confirmResult
+	// noticeErr lets a test script ctrl+c on a notice; consumed in the same
+	// order as notice calls, defaulting to nil once exhausted (or if never
+	// set) so existing scripts that never care about the return need not
+	// populate it.
+	noticeErr []error
 
 	rootIn    []rootInput
 	pickIn    []pickerInput
@@ -138,7 +153,7 @@ func (s *script) screens() screens {
 			}
 			out := s.prompt[0]
 			s.prompt = s.prompt[1:]
-			return out.value, out.ok, nil
+			return out.value, out.ok, out.err
 		},
 		confirm: func(in confirmInput) (bool, error) {
 			s.t.Helper()
@@ -148,11 +163,16 @@ func (s *script) screens() screens {
 			}
 			out := s.confirm[0]
 			s.confirm = s.confirm[1:]
-			return out, nil
+			return out.ok, out.err
 		},
 		notice: func(in noticeInput) error {
 			s.noticeIn = append(s.noticeIn, in)
-			return nil
+			if len(s.noticeErr) == 0 {
+				return nil
+			}
+			err := s.noticeErr[0]
+			s.noticeErr = s.noticeErr[1:]
+			return err
 		},
 	}
 }
@@ -567,7 +587,7 @@ func TestRunAsksTheWarningsOwnQuestion(t *testing.T) {
 		t:       t,
 		root:    []rootChoice{{Kind: choiceAgent, Agent: spec}},
 		pick:    []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
-		confirm: []bool{true},
+		confirm: []confirmResult{{ok: true}},
 	}
 
 	plan, err := run(context.Background(), stubOptions(svc, spec), s.screens())
@@ -600,7 +620,7 @@ func TestRunDecliningTheConfirmReturnsToThePicker(t *testing.T) {
 			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
 			{Kind: pickBack},
 		},
-		confirm: []bool{false},
+		confirm: []confirmResult{{ok: false}},
 	}
 	s.root = append(s.root, rootChoice{Kind: choiceCancel})
 
@@ -752,7 +772,7 @@ func TestRunDecliningConfirmWithAgentSetStillCancels(t *testing.T) {
 			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
 			{Kind: pickBack},
 		},
-		confirm: []bool{false},
+		confirm: []confirmResult{{ok: false}},
 	}
 
 	_, err := run(context.Background(), opts, s.screens())
@@ -761,6 +781,104 @@ func TestRunDecliningConfirmWithAgentSetStillCancels(t *testing.T) {
 	}
 	if len(s.pickIn) != 2 {
 		t.Errorf("picker opened %d times, want 2 (declining must go back to it)", len(s.pickIn))
+	}
+}
+
+// The motivating scenario: from a picker reached after declining a confirm,
+// ctrl+c used to be aliased to esc (pickBack), which routed back to root —
+// requiring a THIRD press (esc from root) to actually leave. ctrl+c must end
+// the session on this very next screen instead.
+func TestRunPickerCtrlCCancelsImmediatelyEvenAfterADecline(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := incompatibleSpec()
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"},
+			{Kind: pickBack, Cancelled: true},
+		},
+		confirm: []confirmResult{{ok: false}},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.pickIn) != 2 {
+		t.Errorf("picker opened %d times, want 2", len(s.pickIn))
+	}
+	if len(s.rootIn) != 1 {
+		t.Errorf("root opened %d times, want 1 — ctrl+c must not reopen it", len(s.rootIn))
+	}
+}
+
+// ctrl+c on the confirm screen itself must also end the session in one
+// press, bypassing backState() (which would otherwise return to the picker).
+func TestRunConfirmCtrlCCancelsImmediately(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := incompatibleSpec()
+	s := &script{
+		t:       t,
+		root:    []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:    []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		confirm: []confirmResult{{err: ErrCancelled}},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.pickIn) != 1 {
+		t.Errorf("picker opened %d times, want 1 — ctrl+c must not return to it", len(s.pickIn))
+	}
+}
+
+// ctrl+c on the API-key prompt must also end the session in one press,
+// bypassing the retreat-to-picker that a plain esc gets.
+func TestRunAPIKeyPromptCtrlCCancelsImmediately(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv(config.APIKeyEnvVar, "")
+
+	spec := stubSpec("claude")
+	s := &script{
+		t:      t,
+		root:   []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:   []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		prompt: []promptResult{{err: ErrCancelled}},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.pickIn) != 1 {
+		t.Errorf("picker opened %d times, want 1 — ctrl+c must not retry through it", len(s.pickIn))
+	}
+}
+
+// ctrl+c on a notice must also end the session in one press, overriding even
+// noticeThenFatal's routing (NotInstalledError, exercised here, would
+// otherwise return to root since Options.Agent is unset in this scenario).
+func TestRunNoticeCtrlCCancelsImmediately(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	spec.Launcher.(*stubLauncher).installed = false
+	spec.Launcher.(*stubLauncher).installHint = "install it"
+
+	s := &script{
+		t:         t,
+		root:      []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:      []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		noticeErr: []error{ErrCancelled},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+	if !errors.Is(err, ErrCancelled) {
+		t.Fatalf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.rootIn) != 1 {
+		t.Errorf("root opened %d times, want 1 — ctrl+c on the notice must not return to it", len(s.rootIn))
 	}
 }
 

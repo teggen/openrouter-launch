@@ -49,6 +49,10 @@ type pickerChoice struct {
 	// pickBack — because the driver persists filters whether or not the
 	// session went on to launch.
 	Filters filterState
+	// Cancelled is set only by ctrl+c, never by esc. The driver checks it
+	// before routing on Kind, so ctrl+c ends the session in one press
+	// instead of retreating one step like esc — see stepPicker.
+	Cancelled bool
 }
 
 type pickerModel struct {
@@ -176,8 +180,13 @@ func (m pickerModel) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// of this function. Matching on key.Type == tea.KeyRunes first would type
 	// a "t" into the search box on every alt+t.
 	switch key.String() {
-	case "esc", "ctrl+c":
+	case "esc":
 		m.choice = pickerChoice{Kind: pickBack, Filters: m.filters}
+		m.done = true
+		return m, tea.Quit
+
+	case "ctrl+c":
+		m.choice = pickerChoice{Kind: pickBack, Filters: m.filters, Cancelled: true}
 		m.done = true
 		return m, tea.Quit
 

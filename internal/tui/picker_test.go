@@ -172,6 +172,30 @@ func TestPickerEscReturnsBackCarryingTheLiveFilters(t *testing.T) {
 	}
 }
 
+// ctrl+c must be distinguishable from esc: the driver turns it into an
+// immediate ErrCancelled instead of routing it like a plain back-out (see
+// stepPicker). It still carries pickBack and the live filters, matching
+// esc's own payload — only Cancelled differs.
+func TestPickerCtrlCCancelsCarryingLiveFilters(t *testing.T) {
+	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyCtrlC))
+	if m.choice.Kind != pickBack {
+		t.Fatalf("kind = %v, want pickBack", m.choice.Kind)
+	}
+	if !m.choice.Cancelled {
+		t.Error("ctrl+c did not mark the choice as cancelled")
+	}
+	if !m.choice.Filters.freeOnly {
+		t.Error("ctrl+c dropped the live filter state")
+	}
+}
+
+func TestPickerEscIsNotCancelled(t *testing.T) {
+	m := press(t, pickerFixture(), typeKey(tea.KeyEsc))
+	if m.choice.Cancelled {
+		t.Error("esc marked the choice as cancelled; only ctrl+c should")
+	}
+}
+
 func TestPickerEnterCarriesTheLiveFilters(t *testing.T) {
 	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyEnter))
 	if !m.choice.Filters.freeOnly {

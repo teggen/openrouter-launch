@@ -65,6 +65,27 @@ func TestPromptEscCancels(t *testing.T) {
 	}
 }
 
+// ctrl+c must be distinguishable from esc: the driver turns it into an
+// immediate ErrCancelled instead of a plain decline (see promptForAPIKey and
+// saveProfile).
+func TestPromptCtrlCInterruptsDistinctlyFromEsc(t *testing.T) {
+	keys := append(typeRunes("partial"), typeKey(tea.KeyCtrlC))
+	m := press(t, namePrompt(), keys...)
+	if !m.interrupted {
+		t.Error("ctrl+c did not mark the prompt as interrupted")
+	}
+	if m.cancelled || m.submitted {
+		t.Errorf("cancelled=%v submitted=%v, want both false on ctrl+c", m.cancelled, m.submitted)
+	}
+}
+
+func TestPromptEscDoesNotInterrupt(t *testing.T) {
+	m := press(t, namePrompt(), typeKey(tea.KeyEsc))
+	if m.interrupted {
+		t.Error("esc marked interrupted; only ctrl+c should")
+	}
+}
+
 // Validation must keep the user in the prompt with the reason visible. If
 // enter submitted regardless, ctrl+s on a duplicate profile name would fail
 // after the screen closed, with nowhere to correct it.

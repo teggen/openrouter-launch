@@ -174,6 +174,43 @@ func TestLiveScreensPromptReturnsTheTypedValueOnEnter(t *testing.T) {
 	}
 }
 
+// These three pin the full chain end to end, through a real bubbletea
+// program: the model sets interrupted on ctrl+c, and the production closure
+// in liveScreens turns that into ErrCancelled. Neither the model-level tests
+// (picker_test.go, confirm_test.go, prompt_test.go, notice_test.go) nor the
+// driver-level tests in tui_test.go exercise this translation — the former
+// stop at the model's field, the latter script the closures directly and
+// never touch program.go at all.
+func TestLiveScreensPromptCtrlCReturnsErrCancelled(t *testing.T) {
+	in := bytes.NewBufferString("\x03") // ctrl+c
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	if _, _, err := sc.prompt(promptInput{Label: "Name"}); !errors.Is(err, ErrCancelled) {
+		t.Errorf("err = %v, want ErrCancelled", err)
+	}
+}
+
+func TestLiveScreensConfirmCtrlCReturnsErrCancelled(t *testing.T) {
+	in := bytes.NewBufferString("\x03")
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	if _, err := sc.confirm(confirmInput{Title: "T", Question: "Launch anyway?"}); !errors.Is(err, ErrCancelled) {
+		t.Errorf("err = %v, want ErrCancelled", err)
+	}
+}
+
+func TestLiveScreensNoticeCtrlCReturnsErrCancelled(t *testing.T) {
+	in := bytes.NewBufferString("\x03")
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	if err := sc.notice(noticeInput{Title: "T"}); !errors.Is(err, ErrCancelled) {
+		t.Errorf("err = %v, want ErrCancelled", err)
+	}
+}
+
 // Catches "prompt returns m.value, true instead of m.value, m.submitted":
 // esc must never report submitted, or the driver would write an empty value
 // into the user's config.

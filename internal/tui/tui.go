@@ -235,6 +235,12 @@ func (s *session) stepPicker() (state, error) {
 	// Taken on every outcome, including pickBack: filters are persisted
 	// whether or not the session goes on to launch.
 	s.filters = choice.Filters
+	// ctrl+c, not esc: it ends the session immediately, before any of the
+	// Kind-based routing below — including backState()/rootOrDone() — gets a
+	// say, matching every other screen's handling of ctrl+c.
+	if choice.Cancelled {
+		return stateDone, ErrCancelled
+	}
 
 	switch choice.Kind {
 	case pickSaveProfile:

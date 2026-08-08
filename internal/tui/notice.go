@@ -18,6 +18,10 @@ type noticeInput struct {
 type noticeModel struct {
 	in   noticeInput
 	done bool
+	// interrupted is set only by ctrl+c, never by enter/esc/q. The driver
+	// checks it before routing where the notice would otherwise send the
+	// session next, so ctrl+c ends it in one press instead.
+	interrupted bool
 }
 
 func newNoticeModel(in noticeInput) noticeModel { return noticeModel{in: in} }
@@ -30,8 +34,11 @@ func (m noticeModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	switch key.String() {
-	case "enter", "esc", "ctrl+c", "q":
+	case "enter", "esc", "q":
 		m.done = true
+		return m, tea.Quit
+	case "ctrl+c":
+		m.interrupted, m.done = true, true
 		return m, tea.Quit
 	}
 	return m, nil

@@ -24,6 +24,23 @@ func TestNoticeDismissKeysQuit(t *testing.T) {
 	}
 }
 
+// ctrl+c must be distinguishable from the other dismiss keys: the driver
+// turns it into an immediate ErrCancelled instead of the notice's own
+// routing (noticeThen/noticeThenFatal).
+func TestNoticeCtrlCInterruptsDistinctlyFromOtherDismissKeys(t *testing.T) {
+	m := press(t, noticeFixture(), typeKey(tea.KeyCtrlC))
+	if !m.done || !m.interrupted {
+		t.Errorf("done=%v interrupted=%v, want both true", m.done, m.interrupted)
+	}
+}
+
+func TestNoticeEscDoesNotInterrupt(t *testing.T) {
+	m := press(t, noticeFixture(), typeKey(tea.KeyEsc))
+	if m.interrupted {
+		t.Error("esc marked interrupted; only ctrl+c should")
+	}
+}
+
 func TestNoticeIgnoresOtherKeys(t *testing.T) {
 	if m := press(t, noticeFixture(), runeKey('x')); m.done {
 		t.Error("an unrelated key dismissed the notice")

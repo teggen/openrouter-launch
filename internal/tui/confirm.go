@@ -23,6 +23,10 @@ type confirmModel struct {
 	in     confirmInput
 	answer bool
 	done   bool
+	// interrupted is set only by ctrl+c, never by esc/n/enter. The driver
+	// checks it before treating a false answer as a plain decline, so ctrl+c
+	// ends the session in one press instead of retreating one step.
+	interrupted bool
 }
 
 func newConfirmModel(in confirmInput) confirmModel { return confirmModel{in: in} }
@@ -41,8 +45,11 @@ func (m confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			m.answer, m.done = true, true
 			return m, tea.Quit
-		case "esc", "ctrl+c", "q":
+		case "esc", "q":
 			m.answer, m.done = false, true
+			return m, tea.Quit
+		case "ctrl+c":
+			m.interrupted, m.done = true, true
 			return m, tea.Quit
 		}
 		return m, nil
@@ -55,8 +62,11 @@ func (m confirmModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "y", "Y":
 		m.answer, m.done = true, true
 		return m, tea.Quit
-	case "n", "N", "esc", "ctrl+c", "enter":
+	case "n", "N", "esc", "enter":
 		m.answer, m.done = false, true
+		return m, tea.Quit
+	case "ctrl+c":
+		m.interrupted, m.done = true, true
 		return m, tea.Quit
 	}
 	return m, nil

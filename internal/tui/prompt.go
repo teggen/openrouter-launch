@@ -23,6 +23,10 @@ type promptModel struct {
 	errMsg    string
 	submitted bool
 	cancelled bool
+	// interrupted is set only by ctrl+c, never by esc. The driver checks it
+	// before treating a non-submission as a plain decline, so ctrl+c ends
+	// the session in one press instead of retreating one step.
+	interrupted bool
 }
 
 func newPromptModel(in promptInput) promptModel { return promptModel{in: in} }
@@ -47,8 +51,11 @@ func (m promptModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.submitted = true
 		return m, tea.Quit
-	case "esc", "ctrl+c":
+	case "esc":
 		m.cancelled = true
+		return m, tea.Quit
+	case "ctrl+c":
+		m.interrupted = true
 		return m, tea.Quit
 	case "backspace":
 		if r := []rune(m.value); len(r) > 0 {

@@ -81,6 +81,30 @@ func TestConfirmAcknowledgeModeIgnoresYesAndNo(t *testing.T) {
 	}
 }
 
+// ctrl+c must be distinguishable from esc/n: the driver turns it into an
+// immediate ErrCancelled rather than treating it as a plain "no" (see
+// stepConfirm).
+func TestConfirmQuestionModeCtrlCInterruptsDistinctlyFromEsc(t *testing.T) {
+	m := press(t, questionModel(), typeKey(tea.KeyCtrlC))
+	if !m.done || !m.interrupted {
+		t.Errorf("done=%v interrupted=%v, want both true", m.done, m.interrupted)
+	}
+}
+
+func TestConfirmAcknowledgeModeCtrlCInterruptsDistinctlyFromEsc(t *testing.T) {
+	m := press(t, ackModel(), typeKey(tea.KeyCtrlC))
+	if !m.done || !m.interrupted {
+		t.Errorf("done=%v interrupted=%v, want both true", m.done, m.interrupted)
+	}
+}
+
+func TestConfirmEscDoesNotInterrupt(t *testing.T) {
+	m := press(t, questionModel(), typeKey(tea.KeyEsc))
+	if m.interrupted {
+		t.Error("esc marked interrupted; only ctrl+c should")
+	}
+}
+
 func TestConfirmViewShowsEveryLineAndTheQuestion(t *testing.T) {
 	got := questionModel().View()
 	for _, want := range []string{

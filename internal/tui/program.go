@@ -100,6 +100,11 @@ func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 			if err != nil {
 				return "", false, err
 			}
+			if m.interrupted {
+				// ctrl+c ends the session immediately; see ErrCancelled and
+				// the design spec's error table.
+				return "", false, ErrCancelled
+			}
 			return m.value, m.submitted, nil
 		},
 
@@ -108,12 +113,21 @@ func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 			if err != nil {
 				return false, err
 			}
+			if m.interrupted {
+				return false, ErrCancelled
+			}
 			return m.answer, nil
 		},
 
 		notice: func(in noticeInput) error {
-			_, err := runProgram(newNoticeModel(in), extra...)
-			return err
+			m, err := runProgram(newNoticeModel(in), extra...)
+			if err != nil {
+				return err
+			}
+			if m.interrupted {
+				return ErrCancelled
+			}
+			return nil
 		},
 	}, nil
 }
