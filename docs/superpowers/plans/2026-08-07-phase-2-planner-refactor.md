@@ -1129,10 +1129,18 @@ func TestPlanIncompatibleModelYieldsConfirmableWarning(t *testing.T) {
 	}
 }
 
-func TestPlanGenuineCheckModelErrorIsFatalAndSilent(t *testing.T) {
+// A genuine (non-ErrIncompatibleModel) CheckModel error is a hard failure,
+// not something to soften into a warning and continue past. The returned
+// error IS the assertion: if the error were downgraded to a warning, Plan
+// would succeed and err would be nil.
+//
+// Do not add an `if len(p.Warnings) != 0` check here. Plan returns Plan{}
+// on every error path, so such an assertion can never fail regardless of
+// what the implementation does.
+func TestPlanGenuineCheckModelErrorIsFatal(t *testing.T) {
 	svc := newTestService(t)
 
-	p, err := svc.Plan(context.Background(), Request{
+	_, err := svc.Plan(context.Background(), Request{
 		Spec: spec("fake", &brokenCheckLauncher{}), ModelID: "anthropic/claude-opus-4.6",
 	})
 	if err == nil {
@@ -1140,10 +1148,6 @@ func TestPlanGenuineCheckModelErrorIsFatalAndSilent(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "catalog service unreachable") {
 		t.Errorf("error should propagate unchanged, got %v", err)
-	}
-	// A hard failure must not also be softened into a warning.
-	if len(p.Warnings) != 0 {
-		t.Errorf("Warnings = %+v, want none", p.Warnings)
 	}
 }
 
@@ -1362,7 +1366,7 @@ func (s *Service) Plan(ctx context.Context, req Request) (Plan, error) {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `go test ./internal/launch/ -count=1 -v`
-Expected: PASS — 31 tests total.
+Expected: PASS — 31 tests total (TestPlanGenuineCheckModelErrorIsFatal among them).
 
 - [ ] **Step 5: Verify formatting and vet**
 
