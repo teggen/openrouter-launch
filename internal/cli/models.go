@@ -38,7 +38,7 @@ func newModelsCmd(a *app) *cobra.Command {
 				return err
 			}
 			if w, ok := launch.StaleWarning(snap, time.Now()); ok {
-				fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+				renderWarning(cmd, w)
 			}
 
 			models := openrouter.Apply(snap.Models, filter)

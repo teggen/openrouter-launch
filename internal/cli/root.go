@@ -30,6 +30,13 @@ func NewRootCmd() *cobra.Command {
 // tree per run, and it takes the service as an argument rather than reading
 // a package global so that a Phase 2 TUI can share the same instance.
 func NewRootCmdWith(svc *launch.Service) *cobra.Command {
+	if svc == nil {
+		// A nil Service would build a full command tree that panics later,
+		// on first use, when Snapshot dereferences a nil receiver. Fail at
+		// construction instead, naming the problem, matching the idiom in
+		// agent.buildIndex for a nil Launcher.
+		panic("cli: NewRootCmdWith requires a non-nil *launch.Service")
+	}
 	a := &app{svc: svc, flags: &globalFlags{}}
 
 	root := &cobra.Command{

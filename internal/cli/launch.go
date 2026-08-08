@@ -51,7 +51,7 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 	// had accumulated when a guard failed, and a stale catalog is often the
 	// explanation for that failure.
 	for _, w := range plan.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+		renderWarning(cmd, w)
 	}
 
 	if errors.Is(err, launch.ErrNoModel) {
@@ -82,7 +82,7 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 	}
 
 	if err := a.svc.Launch(plan, func(w launch.Warning) {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+		renderWarning(cmd, w)
 	}); err != nil {
 		if isAgentExitError(err) {
 			// On Windows, agent.Run waits for the child instead of replacing
@@ -97,6 +97,12 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 		return err
 	}
 	return nil
+}
+
+// renderWarning prints a diagnostic through cobra's IO, so it honors the
+// same redirection as every other CLI message.
+func renderWarning(cmd *cobra.Command, w launch.Warning) {
+	fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
 }
 
 // isAgentExitError reports whether err carries the launched agent's own

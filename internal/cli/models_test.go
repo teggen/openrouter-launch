@@ -66,15 +66,47 @@ func TestModelsCommandExplicitToolsFalseOverridesSavedDefault(t *testing.T) {
 	}
 }
 
+// TestModelsCommandToolsFilter seeds a persisted Filters.ToolsOnly:false -
+// the opposite of config.defaults() - so an explicit --tools has something
+// to actually override. Without this, config.defaults() already sets
+// ToolsOnly:true, making bare `models` and `models --tools` byte-identical:
+// deleting the changed(FlagTools) branch in MergeFilters would leave this
+// test green. An explicit --tools overriding a persisted false is the only
+// tools-flag direction with no other CLI-level coverage.
 func TestModelsCommandToolsFilter(t *testing.T) {
 	h := newHarness(t)
+	if err := config.Save(&config.Config{Filters: config.Filters{ToolsOnly: false}}); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
 	got := h.run(t, "models", "--tools")
 
 	if strings.Contains(got, "openai/o1-mini") {
-		t.Errorf("--tools should exclude o1-mini:\n%s", got)
+		t.Errorf("--tools should exclude o1-mini even though the saved filter is false:\n%s", got)
 	}
 	if !strings.Contains(got, "anthropic/claude-opus-4.6") {
 		t.Errorf("--tools dropped a tool-capable model:\n%s", got)
+	}
+}
+
+// TestModelsCommandRendersStaleCatalogWarning is the regression test for the
+// stale-catalog warning `models` renders via renderWarning. Before task 7
+// duplicated the render inline, this was covered through the shared
+// loadCatalog by a test in the now-deleted catalog_test.go; only the
+// launch-side copy got replacement coverage. This is the only user-facing
+// signal that `models` may be listing stale data while offline, so a stale
+// catalog must both surface the warning AND still list the (stale) models.
+func TestModelsCommandRendersStaleCatalogWarning(t *testing.T) {
+	h := newHarnessWith(t, erroringCatalog{})
+	seedStaleCache(t)
+
+	got := h.run(t, "models", "--tools=false")
+
+	if !strings.Contains(got, "could not refresh the model catalog") {
+		t.Errorf("stderr should contain the stale-catalog warning:\n%s", got)
+	}
+	if !strings.Contains(got, "anthropic/claude-opus-4.6") {
+		t.Errorf("a stale catalog must not suppress the models listing:\n%s", got)
 	}
 }
 

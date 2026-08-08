@@ -3,17 +3,12 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
@@ -335,35 +330,10 @@ func (erroringCatalog) Models(context.Context) ([]openrouter.Model, error) {
 // unknown-model error, losing the one clue that explains it. Both lines
 // must reach stderr even though the command ultimately fails.
 func TestLaunchStaleCatalogWarningSurvivesUnknownModelError(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	h := newHarnessWith(t, erroringCatalog{})
+	seedStaleCache(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	stubClaudePath(t)
-
-	path, err := openrouter.CachePath()
-	if err != nil {
-		t.Fatalf("CachePath: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	data, err := json.Marshal(struct {
-		FetchedAt time.Time          `json:"fetched_at"`
-		Models    []openrouter.Model `json:"models"`
-	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: fakeModels()}) // older than DefaultTTL
-	if err != nil {
-		t.Fatalf("marshal cache file: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write cache file: %v", err)
-	}
-
-	h := &harness{}
-	h.svc = &launch.Service{
-		Catalog: erroringCatalog{},
-		Run:     func(c agent.Command) error { h.ran = c; return nil },
-	}
 
 	var stderr bytes.Buffer
 	root := h.root(&stderr)
@@ -389,35 +359,10 @@ func TestLaunchStaleCatalogWarningSurvivesUnknownModelError(t *testing.T) {
 // had already answered the prompt would arrive too late to inform their
 // answer, and so would be useless to them.
 func TestLaunchRendersStaleThenCompatibilityThenPrompt(t *testing.T) {
-	dir := t.TempDir()
-	t.Setenv("XDG_CACHE_HOME", dir)
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	h := newHarnessWith(t, erroringCatalog{}) // forces the stale-cache fallback
+	seedStaleCache(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	stubClaudePath(t)
-
-	path, err := openrouter.CachePath()
-	if err != nil {
-		t.Fatalf("CachePath: %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		t.Fatalf("MkdirAll: %v", err)
-	}
-	data, err := json.Marshal(struct {
-		FetchedAt time.Time          `json:"fetched_at"`
-		Models    []openrouter.Model `json:"models"`
-	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: fakeModels()}) // older than DefaultTTL
-	if err != nil {
-		t.Fatalf("marshal cache file: %v", err)
-	}
-	if err := os.WriteFile(path, data, 0o644); err != nil {
-		t.Fatalf("write cache file: %v", err)
-	}
-
-	h := &harness{}
-	h.svc = &launch.Service{
-		Catalog: erroringCatalog{}, // forces the stale-cache fallback
-		Run:     func(c agent.Command) error { h.ran = c; return nil },
-	}
 
 	var stderr bytes.Buffer
 	root := h.root(&stderr)
