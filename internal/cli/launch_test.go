@@ -2,11 +2,19 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 // stubClaudePath makes the registry's Claude launcher resolve without a real
@@ -307,5 +315,69 @@ func TestLaunchMissingAPIKeyFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "OPENROUTER_API_KEY") {
 		t.Errorf("error should name the environment variable, got: %v", err)
+	}
+}
+
+// erroringCatalog always fails to fetch, forcing Service.Plan down the
+// stale-cache fallback path so a pre-seeded cache file is what gets served.
+type erroringCatalog struct{}
+
+func (erroringCatalog) Models(context.Context) ([]openrouter.Model, error) {
+	return nil, errors.New("network down")
+}
+
+// This is the regression test for the bug this change fixes: loadCatalog
+// used to print the stale-catalog warning unconditionally, the moment a
+// stale snapshot came back, so it survived whatever failed afterward. Once
+// that print moved into Service.Plan's accumulated Warnings slice, every
+// fatal guard past the catalog load returned Plan{} and silently dropped
+// it - so "offline, cache is stale, mistyped model slug" surfaced only the
+// unknown-model error, losing the one clue that explains it. Both lines
+// must reach stderr even though the command ultimately fails.
+func TestLaunchStaleCatalogWarningSurvivesUnknownModelError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", dir)
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
+	stubClaudePath(t)
+
+	path, err := openrouter.CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	data, err := json.Marshal(struct {
+		FetchedAt time.Time          `json:"fetched_at"`
+		Models    []openrouter.Model `json:"models"`
+	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: fakeModels()}) // older than DefaultTTL
+	if err != nil {
+		t.Fatalf("marshal cache file: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write cache file: %v", err)
+	}
+
+	h := &harness{}
+	h.svc = &launch.Service{
+		Catalog: erroringCatalog{},
+		Run:     func(c agent.Command) error { h.ran = c; return nil },
+	}
+
+	var stderr bytes.Buffer
+	root := h.root(&stderr)
+	root.SetArgs([]string{"claude", "-m", "no/such-model"})
+
+	if err := root.Execute(); err == nil {
+		t.Fatal("expected an error for an unknown model")
+	}
+
+	out := stderr.String()
+	if !strings.Contains(out, "could not refresh the model catalog") {
+		t.Errorf("stderr should contain the stale-catalog warning, got: %q", out)
+	}
+	if !strings.Contains(out, "unknown model") {
+		t.Errorf("stderr should contain the unknown-model error, got: %q", out)
 	}
 }

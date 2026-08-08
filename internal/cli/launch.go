@@ -46,6 +46,14 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 		ExtraArgs: extraArgs,
 		Refresh:   a.flags.refresh,
 	})
+
+	// Printed before the error is inspected: the planner returns whatever it
+	// had accumulated when a guard failed, and a stale catalog is often the
+	// explanation for that failure.
+	for _, w := range plan.Warnings {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
+	}
+
 	if errors.Is(err, launch.ErrNoModel) {
 		// Phase 2 replaces this branch with the interactive picker. The
 		// planner reports the bare condition; naming a CLI flag is this
@@ -57,8 +65,10 @@ func resolveAndRun(cmd *cobra.Command, a *app, spec *agent.Spec, modelID string,
 		return err
 	}
 
+	// Confirmation is a second pass: there is nothing to confirm on a path
+	// that is about to fail, and printing every warning before asking gives
+	// the user the full picture at the prompt.
 	for _, w := range plan.Warnings {
-		fmt.Fprintf(cmd.ErrOrStderr(), "warning: %s\n", w.Message)
 		if w.Question == "" {
 			continue
 		}
