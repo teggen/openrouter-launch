@@ -486,7 +486,7 @@ see "Skipped gates" below. openclaw and droid are later tasks, out of scope here
   for the real key: zero hits everywhere.
 - **Key-leak grep, every gate.** `grep -rl "$KEY"
   .superpowers/sdd/2026-08-09-phase-4a/live-{pi,hermes,cline}-*.log` — no matches, all
-  eleven log files across the three agents.
+  twelve log files across the three agents.
 - **Skipped gates (owner scope adjustment, Task 9 brief).** qwen, kimi, and omp were not
   installed this task and ship doc-verified-only; their live-gate items move to HANDOFF
   open items via Task 10:
