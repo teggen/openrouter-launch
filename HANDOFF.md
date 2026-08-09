@@ -275,11 +275,12 @@ This shipped once. The full accounting is in the constant's comment in
 pins it against the renderer's actual arithmetic.
 
 **18. Codex's `wire_api` value was wrong in the plan and the design doc —
-`"chat"` is rejected outright by codex ≥0.146.1.** The Phase 3 plan, and the
-ollama source it was ported from, specified `wire_api="chat"`. Live
-verification (2026-08-08, `.superpowers/sdd/2026-08-08-phase-3-agents/`) ran
-that exact value against a real `codex exec` and got a config-load-time
-error, not a network failure:
+`"chat"` is rejected outright by codex ≥0.146.1.** The Phase 3 plan specified
+`wire_api="chat"` on its own — the ollama source it was ported from actually
+specified `wire_api="responses"` and would have agreed with the live
+verification below. Live verification (2026-08-08,
+`.superpowers/sdd/2026-08-08-phase-3-agents/`) ran that exact value against a
+real `codex exec` and got a config-load-time error, not a network failure:
 
 ```
 Error loading config.toml: `wire_api = "chat"` is no longer supported.
@@ -291,8 +292,9 @@ next and produced a real completion through OpenRouter
 (`live-codex-raw.log`, `live-codex-orl.log`). `internal/agent/codex.go` now
 emits `wire_api="responses"` — this is the live-verified value, not a
 guess. If you are "fixing" this back to `"chat"` because it matches an
-older doc, a stale memory of the ollama source, or looks more idiomatic:
-don't. That value is falsified and breaks codex on any version ≥0.146.
+older doc or looks more idiomatic: don't — the ollama source it was ported
+from agrees with `"responses"`, not `"chat"`. That value is falsified and
+breaks codex on any version ≥0.146.
 
 ## Phase 2 — complete
 
