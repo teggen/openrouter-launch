@@ -38,7 +38,7 @@ func TestTagBranchGuard(t *testing.T) {
 	repo := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(t.Context(), "git", args...)
 		cmd.Dir = repo
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -83,7 +83,7 @@ func TestTagBranchGuard(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.tag+"/"+map[bool]string{true: "allow", false: "refuse"}[tc.allow], func(t *testing.T) {
-			cmd := exec.Command("bash", script, tc.tag, "main", "develop")
+			cmd := exec.CommandContext(t.Context(), "bash", script, tc.tag, "main", "develop")
 			cmd.Dir = repo
 			out, err := cmd.CombinedOutput()
 			if tc.allow && err != nil {
