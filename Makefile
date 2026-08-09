@@ -17,7 +17,17 @@ VERSION_PKG := $(PKG)/internal/version
 # the workflows assert they pin the same strings.
 GOLANGCI_VERSION    := v2.12.2
 GORELEASER_VERSION  := v2.17.1
-GOSEC_VERSION       := latest
+# Pinned, unlike its two siblings below: check-gosec-analysis.sh (Landmine
+# 28) keys on the exact wording of gosec's own log lines ("Checking file:",
+# "no ssa result", etc.) to tell a real analysis from one that silently
+# analysed nothing. That asymmetry is why this one can't float — a reworded
+# "Checking file:" line fails the guard CLOSED (red CI on a sound tree, loud
+# and easy to diagnose), but a reworded *failure* signature fails it OPEN
+# (green CI on a genuinely broken analysis, the exact hole the guard exists
+# to close). Pinning removes the failure-open branch entirely; bump this
+# deliberately, and re-run gosecguard_test.go against the new version's log
+# wording before trusting it again.
+GOSEC_VERSION       := v2.28.0
 GOVULNCHECK_VERSION := latest
 ACTIONLINT_VERSION  := latest
 
@@ -107,7 +117,7 @@ lint-cross: ## Lint the build-tagged files the default GOOS never sees
 # line. The `-` tells make to ignore that line's exit status, which is what
 # keeps gosec's ~19 findings advisory — but it ignores "No such file or
 # directory" just as happily. With gosec uninstalled this target printed
-#   make: /home/martin/go/bin/gosec: No such file or directory
+#   make: $(GOBIN)/gosec: No such file or directory
 #   make: [Makefile:112: security] Error 127 (ignored)
 # and exited 0, so `make security` reported success having run no gosec at
 # all. gosec was the only tool here without the presence guard its three
@@ -202,8 +212,18 @@ tools: ## Install the pinned lint/security tools with the local toolchain
 	GOTOOLCHAIN=auto go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	GOTOOLCHAIN=auto go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
 	GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	GOTOOLCHAIN=auto go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+	$(MAKE) tools-actionlint
 	@echo "installed into $(GOBIN)"
+
+# Split out from `tools` so ci.yml's `quality` job can install just this one
+# tool for `lint-workflows`, instead of the other three `tools` also builds
+# (golangci-lint is already installed there by golangci-lint-action; gosec
+# and govulncheck belong to the `audit` job, not `quality`). `tools` still
+# depends on this rather than repeating the go-install line, so the version
+# pin and install command stay declared exactly once.
+.PHONY: tools-actionlint
+tools-actionlint: ## Install actionlint alone (with the local toolchain)
+	GOTOOLCHAIN=auto go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
 
 .PHONY: tools-release
 tools-release: ## Install goreleaser (separate: it is a slow build)

@@ -33,7 +33,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **446** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 10 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began. |
+| Tests | **448** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
@@ -576,10 +576,12 @@ with machine-independence. `make test-isolated` uses `dirname $(command -v
 go)` and keeps the rest of the stripping intact — the point is hiding
 `~/.local/bin`, not hiding the toolchain.
 
-**28. `gosec` exiting 0 is not evidence that gosec ran.** `-no-fail` is what
-keeps this repo's ~19 findings advisory, and it also swallows the case where
-the analysis never happened. Measured on a deliberately broken package, then
-on this real tree with one type error added to `internal/launch/plan.go`:
+**28. `gosec` exiting 0 is not evidence that gosec ran — but this is
+narrower coverage than "catches a broken tree", not general insurance
+against one.** `-no-fail` is what keeps this repo's ~19 findings advisory,
+and it also swallows the case where the analysis never happened. Measured on
+a deliberately broken package, then on this real tree with one type error
+added to `internal/launch/plan.go`:
 
 ```
 [gosec] Error building the SSA representation of the package launch:
@@ -588,9 +590,39 @@ exit 0 — SARIF written — still 19 results
 ```
 
 Four packages' SSA analysis silently did not run, the SARIF looked *identical*
-in size and result count, and every downstream control in `ci.yml`'s audit
-job was satisfied — including `if-no-files-found: error`, which only ever
-asked whether a file exists. Two guards close this and neither is optional:
+in size and result count, and every downstream control *after* gosec in
+`ci.yml`'s `audit` job was satisfied — including `if-no-files-found: error`,
+which only ever asked whether a file exists.
+
+**A re-review measured, rather than assumed, whether a type-error tree alone
+can reach that point at all — it cannot.** `make security` runs
+`govulncheck` before gosec, with no `-` prefix, so a non-zero exit there
+aborts the recipe on the spot. Reproducing the exact injected error above:
+`govulncheck ./...` fails immediately (`loading packages: ... undefined:
+totallyUndefinedSymbolReference`, exit 1) and `make security` — and with it
+the `audit` job — reddens at that line, before gosec's own line ever runs.
+So these two guards' real, non-redundant coverage is the set of cases
+govulncheck's blocking exit does *not* already catch:
+
+- **gosec walking zero packages** for a reason unrelated to any type error —
+  a path or glob mistake, an exclusion misconfiguration, gosec pointed at an
+  empty tree — where `govulncheck`'s separate invocation would not
+  necessarily fail the same way, or at all;
+- **SSA dying in a package `govulncheck` never reached** — the two tools
+  load packages independently, so a future divergence between their scopes
+  (a flag, an exclude list, a path change on either one) could leave a
+  broken package visible to gosec's SSA build and invisible to
+  `govulncheck`'s;
+- **a future softening of `make security`** — if `govulncheck`'s line ever
+  gains the `-` prefix that makes gosec's line advisory, or the two calls
+  are reordered, the blocking-first-runs-first property this section relies
+  on disappears silently, and these two guards become the only thing
+  standing between a broken gosec analysis and a green job.
+
+Do not restate this landmine as "a type-error tree can go green" — that
+claim was checked directly and is false as of this tree's `make security`
+ordering; the honest claim is the narrower one above. Two guards close the
+narrower gap and neither is optional:
 
 - `.github/scripts/check-gosec-analysis.sh`, run as its own audit step,
   greps the teed gosec log for the failed-analysis signature and for at
@@ -829,6 +861,18 @@ and installed but ran nowhere, while Dependabot edits workflow YAML weekly),
 keyed `ci.yml`'s concurrency group on the PR head ref so same-repo PRs stop
 running the matrix twice, and corrected the documentation findings recorded
 under the individual items above.
+
+**A scoped re-review of that fix wave** found two of its own fixes did not
+achieve their stated purpose, plus a stale count inside the commit that
+should have fixed it. All three closed together, still on `develop`, still
+no re-release: the concurrency-group fallback was `github.ref` (unfixed —
+see the corrected comment on `group:` in `ci.yml`), the `lint-workflows`
+addition only ever ran on a contributor's machine because Dependabot PRs
+never invoke `make ci` (closed by adding the same validation to `ci.yml`'s
+`quality` job directly — see the divergence list below), and the Tests row
+above was one commit stale the day it was written. `GOSEC_VERSION` was also
+pinned and Landmine 28's scope restated in the same pass — see that landmine
+for both.
 
 ## Open items
 
@@ -1079,16 +1123,32 @@ are a manual smoke test you run by hand.
 
 `.github/workflows/ci.yml` invokes those same Makefile targets rather than
 re-spelling the commands in YAML — but it is *not* literally `make ci`, and
-three differences are deliberate:
+three differences are deliberate (verified against the actual `ci` target
+and the actual `ci.yml`, item by item — `lint-workflows` is deliberately
+**not** in this list: both `make ci` and `ci.yml`'s `quality` job now run
+it, so it is no longer a divergence; see below):
 
 1. the `quality` job runs `golangci/golangci-lint-action` where `make ci`
    runs `make lint`. The action installs the pinned binary and puts it on
    `PATH`, which is exactly what the following `make lint-cross` step then
    reuses;
-2. the `audit` job runs `make tools` first, to build the analysis binaries
-   with that job's own toolchain (Landmine 25);
+2. the `audit` job runs `make tools` first, to build all four pinned
+   analysis binaries with that job's own toolchain (Landmine 25). The
+   `quality` job installs only actionlint the same way (`make
+   tools-actionlint`), not the other three `make tools` also builds —
+   golangci-lint is already on `PATH` via the action above, and gosec /
+   govulncheck belong to `audit`, not `quality`;
 3. the `audit` job adds the gosec SARIF report, its failed-analysis guard,
    and the upload steps, none of which exist as a Makefile target.
+
+`lint-workflows` itself used to be a fourth, undocumented divergence: it was
+added to `make ci` in the final fix wave, but nothing in `ci.yml` ever ran
+it, so it validated workflow YAML only on a contributor's machine — never on
+a Dependabot PR, the one case the addition was written to cover, since
+Dependabot PRs never run a local `make ci`. Fixed by giving `ci.yml`'s
+`quality` job its own `make tools-actionlint` + `make lint-workflows` steps
+(above), so the exact same Makefile target now runs in both places and the
+rationale is actually met.
 
 ```bash
 go test ./... -count=1

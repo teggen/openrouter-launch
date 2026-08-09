@@ -9,14 +9,23 @@ permissions:
   contents: read
 
 concurrency:
-  # NOT `github.ref`. Both `push` and `pull_request` fire for a same-repo PR
-  # branch, and github.ref differs between them (refs/heads/x vs
-  # refs/pull/N/merge), so the two runs landed in different groups and the
-  # full four-job matrix ran twice for every same-repo PR — including every
-  # Dependabot PR. Keying on the PR's head ref when there is one collapses
-  # them into a single cancellable group; `github.ref` remains the fallback
-  # for plain pushes.
-  group: ci-${{ github.event.pull_request.head.ref || github.ref }}
+  # NOT plain `github.ref` as the fallback. Both `push` and `pull_request`
+  # fire for a same-repo PR branch. On `push`, `github.event.pull_request` is
+  # null, so the group fell through to the second operand — and `github.ref`
+  # there is `refs/heads/x`, which never matches `pull_request`'s
+  # `head.ref` (bare `x`). That mismatch is the exact split this comment
+  # claims to fix, so the fallback must be `github.ref_name`, not
+  # `github.ref`: per GitHub's contexts reference, `github.ref_name` is "the
+  # short ref name... [that] matches the branch or tag name shown on GitHub"
+  # (e.g. `feature-branch-1`) for a branch push — the same string
+  # `github.event.pull_request.head.ref` carries for that branch's PR run.
+  # (The reverse substitution does not work: on a `pull_request` event
+  # `github.ref_name` is `<pr_number>/merge`, not the branch name — which is
+  # why `head.ref` must be checked first, not `ref_name`.) Keying on the PR's
+  # head ref when there is one, falling back to the short ref name
+  # otherwise, collapses same-repo push+PR runs into one cancellable group —
+  # including every Dependabot PR.
+  group: ci-${{ github.event.pull_request.head.ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
@@ -45,6 +54,18 @@ jobs:
       # puts golangci-lint on PATH, so this reuses the binary it installed.
       - name: Lint the build-tagged files the default GOOS never sees
         run: make lint-cross
+      # actionlint was pinned in the Makefile and installed by `make tools`
+      # from the start, but nothing ever ran it in CI — so the workflow YAML
+      # Dependabot edits weekly (.github/dependabot.yml) was validated only
+      # by `make ci` on a contributor's machine, which a Dependabot PR never
+      # runs. Installing just this one tool (not the other three `make
+      # tools` also builds — golangci-lint is already on PATH via the action
+      # above, gosec/govulncheck belong to `audit`) keeps this job fast while
+      # still deferring the version pin and install command to the Makefile.
+      - name: Install actionlint
+        run: make tools-actionlint
+      - name: Validate GitHub Actions workflow YAML
+        run: make lint-workflows
       - run: make tidy-check
       - run: make cross
 
