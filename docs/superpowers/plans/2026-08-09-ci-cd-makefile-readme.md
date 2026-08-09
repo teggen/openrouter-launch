@@ -603,6 +603,17 @@ formatters:
   # v2 moved gofmt/goimports/gofumpt out of linters into their own section.
   enable:
     - gofmt
+
+issues:
+  # Both default to a nonzero cap (max-issues-per-linter 50, max-same-issues 3)
+  # which SILENTLY TRUNCATES the report. Found during execution: the first run
+  # of this config showed 18 findings and the true count was 28 — ten
+  # identical-message errcheck hits were withheld, including four sibling
+  # cleanup lines in droid.go that a partial fix would have missed. A gate that
+  # hides its fourth repeat of a finding is not a gate. 0 means unlimited, and
+  # can only ever surface more findings, never fewer.
+  max-issues-per-linter: 0
+  max-same-issues: 0
 ```
 
 - [ ] **Step 3: Run the linter**
