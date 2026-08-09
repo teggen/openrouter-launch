@@ -17,14 +17,6 @@ linters:
     - revive
     - bodyclose
     - noctx
-  settings:
-    revive:
-      rules:
-        # The codebase is heavily commented, but this rule polices comment
-        # *form* ("comment on exported X should be of the form ..."), which
-        # is prose style, not a defect class. The gate is for bugs.
-        - name: exported
-          disabled: true
   exclusions:
     rules:
       # Test helpers routinely ignore errors from cleanup and fixture setup
@@ -40,10 +32,37 @@ linters:
       # is no remaining channel on which to report it. Scoped to this path,
       # this linter, and this message so that every other unchecked error in
       # internal/cli — a dropped config.Save, say — still fails the gate.
+      #
+      # Known limit: errcheck's message names the FUNCTION, not the
+      # destination, so this would also swallow a genuine unchecked
+      # fmt.Fprintf(f, …) to a real file opened inside internal/cli. Nothing
+      # in errcheck can distinguish the two. The compensating control is
+      # TestWriteSitesAreExhaustivelyEnumerated (writesites_test.go), which
+      # fails if any write primitive appears outside the four sanctioned
+      # sites — none of which are in internal/cli (Landmine 6).
       - path: internal/cli/
         linters:
           - errcheck
         text: fmt\.Fprint
+
+      # revive's `exported` rule polices comment FORM ("comment on exported X
+      # should be of the form ..."), which is prose style, not a defect class.
+      # The gate is for bugs.
+      #
+      # Suppress it HERE, and never via `linters.settings.revive.rules`: that
+      # block REPLACES revive's rule set rather than amending it, so naming a
+      # single disabled rule there silently turns revive off completely.
+      # Measured on this tree: 0 findings with the settings block, 26 without.
+      - linters:
+          - revive
+        text: '^exported:'
+
+      # The four unused-parameter hits are all in test helpers whose
+      # signatures are fixed by the interface they stub.
+      - path: _test\.go
+        linters:
+          - revive
+        text: '^unused-parameter:'
 
       # Landmine 24: a ConfigWriter agent (droid) deliberately does NOT take
       # the syscall.Exec handoff — RunWait forks and waits so restore() can
@@ -53,7 +72,13 @@ linters:
       # context. Switching to CommandContext would add a cancellation
       # mechanism that could kill a live session and would change the
       # fork-and-wait contract the Landmine pins.
-      - path: internal/agent/exec_wait\.go
+      #
+      # Covers exec_windows.go too: it is the Windows substitute for the
+      # syscall.Exec handoff and earns the same rationale. Note that lint is
+      # GOOS-SENSITIVE — a build-tagged file is invisible to the gate on
+      # every other platform, so `make lint` alone never sees that site.
+      # CI must run the linter under GOOS=windows and GOOS=darwin as well.
+      - path: internal/agent/exec_(wait|windows)\.go
         linters:
           - noctx
         text: os/exec\.Command must not be called
