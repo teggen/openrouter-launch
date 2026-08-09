@@ -1,0 +1,85 @@
+# GoReleaser v2. Note `archives[].formats` is a LIST — v2.6 renamed the
+# singular `format`, which is deprecated. Same rename inside format_overrides.
+version: 2
+
+project_name: openrouter-launch
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: openrouter-launch
+    main: .
+    binary: openrouter-launch
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    # Reproducible builds: stamp from the commit, not from wall-clock time.
+    mod_timestamp: "{{ .CommitTimestamp }}"
+    ldflags:
+      - -s -w
+      - -X github.com/teggen/openrouter-launch/internal/version.Version={{ .Version }}
+      - -X github.com/teggen/openrouter-launch/internal/version.Commit={{ .FullCommit }}
+      - -X github.com/teggen/openrouter-launch/internal/version.Date={{ .CommitDate }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  sort: asc
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Other changes
+      order: 999
+  filters:
+    exclude:
+      - '^docs:'
+      - '^docs\('
+      - '^test:'
+      - '^test\('
+      - '^chore:'
+      - '^chore\('
+
+release:
+  # Reads the -beta.N suffix off the tag and marks the GitHub release a
+  # prerelease. This is what implements "main for releases, develop for
+  # betas" on the publishing side; .github/scripts/check-tag-branch.sh
+  # enforces the branch half.
+  prerelease: auto
+  draft: false
+  footer: |
+    ## Install
+
+    Download the archive for your platform, extract it, and put
+    `openrouter-launch` on your `PATH`:
+
+    ```
+    openrouter-launch --version
+    ```
+
+    Verify your download against `checksums.txt`.
