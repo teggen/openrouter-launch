@@ -39,7 +39,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release) and `v0.1.0` (Latest)**, both 2026-08-09, six archives + `checksums.txt` each |
 | Go floor | `go 1.25` — a **security** floor, not a dependency floor (Landmine 25, third clause). Minor-only on purpose so `setup-go` resolves the newest patch; it resolved `go1.25.12` on the first run. |
-| Pushed | Yes — `origin/main` and `origin/develop` are both at the `v0.1.0` commit. Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
+| Pushed | Yes, both branches. `origin/main` is at the `v0.1.0` commit (`5ee7ea5`); `origin/develop` is **ahead of it** — the final review's fix wave and the residual round landed on `develop` after the release, so it carries unreleased work destined for the next tag. Check `git status -sb` and `git log --oneline main..develop` rather than trusting this row; it has been wrong before, and it went stale again within an hour of being written. |
 
 Working commands, all smoke-tested against the live API:
 
@@ -110,8 +110,10 @@ docs/superpowers/plans/2026-08-07-phase-2-planner-refactor.md            the pla
 docs/superpowers/plans/2026-08-08-phase-2-tui.md                         the plan that built internal/tui
 docs/superpowers/plans/2026-08-08-phase-3-agents.md                      the plan that built Phase 3 (its wire_api="chat" is the frozen pre-verification value; the spec records the correction)
 docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md        spec for pi/hermes/qwen/cline/kimi/omp/openclaw/droid, live-verification results appended
-docs/superpowers/plans/2026-08-09-phase-4a-tier-2-zero-touch.md          the plan that built Phase 4a (this phase)
+docs/superpowers/plans/2026-08-09-phase-4a-tier-2-zero-touch.md          the plan that built Phase 4a
 docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md  the plan that built Phase 4b — Staged, openclaw, fork-and-wait, droid; complete
+docs/superpowers/specs/2026-08-09-ci-cd-and-readme-design.md              spec for the CI/CD phase — read for WHY the branch model, coverage floor, and 6 targets are what they are
+docs/superpowers/plans/2026-08-09-ci-cd-makefile-readme.md                the plan that built the CI/CD phase; amended repeatedly during execution as CI falsified assumptions
 CLAUDE.md                                                                quick operational layer for Claude Code sessions; points here
 .superpowers/sdd/progress.md                                             Phases 1-2 build ledger (gitignored)
 .superpowers/sdd/*-report.md                                             Phases 1-2 per-task reports (gitignored)
@@ -120,8 +122,21 @@ CLAUDE.md                                                                quick o
 .superpowers/sdd/2026-08-09-phase-4a-tier-2-zero-touch/                  Phase 4a workspace: ledger (progress.md), task briefs/reports, whole-branch review diffs
 .superpowers/sdd/2026-08-09-phase-4a/                                    Task 9's live-gate evidence: live-{pi,hermes,cline}-*.log (12 files)
 .superpowers/sdd/2026-08-09-phase-4b-configwriter-openclaw-droid/        Phase 4b workspace: ledger (progress.md), task briefs/reports, whole-branch review diffs per task, Task 6's verification report
+.superpowers/sdd/2026-08-09-ci-cd-makefile-readme/                       CI/CD phase workspace: ledger (progress.md), task briefs/reports, review diffs, final-fix and residual-fix reports
+
+Makefile                     THE single source of truth for every check; CI calls these targets
+.github/workflows/ci.yml     quality, audit, 3-OS test matrix, machine-independence — all branches
+.github/workflows/release.yml  tag-triggered: verify -> branch guard -> GoReleaser -> binary self-check
+.github/scripts/check-tag-branch.sh    the branch guard (a script so it is testable; see tagguard_test.go)
+.github/scripts/check-gosec-analysis.sh  refuses a gosec run that analysed nothing (Landmine 28)
+.github/dependabot.yml       gomod + github-actions, weekly, targeting develop
+.goreleaser.yaml             6 targets ({linux,darwin,windows} x {amd64,arm64}), archives, checksums
+.golangci.yml                golangci-lint v2 schema (Landmine 26 — never downgrade to v1)
+README.md                    user-facing docs; ships inside every release archive
+LICENSE                      MIT, "Copyright (c) 2026 teggen"
 
 main.go                      entry point + exit-code extraction
+internal/version/            Version/Commit/Date, overwritten by release ldflags (pinned by goreleaser_test.go)
 internal/openrouter/         model type, HTTP catalog client, disk cache, filters
 internal/config/             XDG config, API key resolution, profile CRUD
 internal/agent/              Launcher interface, registry, Claude launcher, process handoff
