@@ -145,9 +145,15 @@ jobs:
     # as each went green. macOS has now passed on every run since the first
     # (the prediction that its Unix-path fixtures would fail was simply
     # wrong), so its flag is off and a macOS regression is now blocking.
-    # Windows stays advisory: 19 platform-fixture failures, enumerated in
-    # HANDOFF's Open items. Closing those needs platform-aware fixtures, not
-    # launcher changes — that is what makes its flag removable.
+    #
+    # Windows' flag is now off too. Its 19 failures were closed by
+    # platform-aware fixtures and NO launcher change, exactly as predicted:
+    # a home-directory helper that redirects USERPROFILE as well as HOME
+    # (Landmine 8), GOOS-selected findPath candidates for qwen, kimiBinary()
+    # for kimi's .exe suffix, and Unix guards on the file-mode assertions
+    # Windows cannot express. Leaving it advisory now would let the same
+    # class of drift return unnoticed — which is how it went unnoticed for
+    # four phases.
     continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 20
     strategy:
@@ -159,7 +165,7 @@ jobs:
           - os: macos-latest
             experimental: false
           - os: windows-latest
-            experimental: true
+            experimental: false
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

@@ -36,7 +36,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Tests | **489** total, verified by both counting methods below. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-09 after the listing-tables change; last confirmed in GitHub Actions at `v0.1.1`. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
-| CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
+| CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (**all three blocking** as of 2026-08-09: Windows' 19 platform-fixture failures are closed and its `experimental` flag is off), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release), `v0.1.0`, and `v0.1.1` (Latest)**, all 2026-08-09, six archives + `checksums.txt` each. `v0.1.1` went straight to stable with no beta (owner decision — a permissions patch on a green tree), so it is also the first release where only ONE tag sits on the commit and the `GORELEASER_CURRENT_TAG` collision below could not arise |
 | Go floor | `go 1.25` — a **security** floor, not a dependency floor (Landmine 25, third clause). Minor-only on purpose so `setup-go` resolves the newest patch; it resolved `go1.25.12` on the first run. |
 | Pushed | Yes, both branches. `origin/main` is at the `v0.1.1` commit `c05c7b1`; `origin/develop` is **one commit ahead**, and that one commit is this handoff update itself — the fast-forward left the branches level and then writing this row un-levelled them, which is the whole reason this row keeps going stale. No unreleased *code* is outstanding. Check `git status -sb` and `git log --oneline main..develop` rather than trusting this row; it has been wrong before, and it went stale twice within an hour of being written. |
@@ -1116,10 +1116,22 @@ for both.
     preserved`) — Windows has no POSIX permission bits, so Landmine 9's shape
     is unassertable there as currently written.
 
-  Closing this means giving those tests platform-aware fixtures, not changing
-  the launchers. Until then `test (windows-latest)` stays `continue-on-error`.
-  `test (macos-latest)` had its flag **removed** in the final fix wave — it
-  was green on its first run and on every run since, so it is now blocking.
+  **Closed 2026-08-09, and the prediction held exactly: platform-aware
+  fixtures, zero launcher changes.** It took two rounds, because the first
+  round's fix hid the rest. Round one — `testHome(t)`, which redirects
+  `USERPROFILE`/`APPDATA`/`LOCALAPPDATA` alongside `HOME` (see the amended
+  Landmine 8) — closed 14 of the 19 and revealed that on Windows these tests
+  had been writing `~/.factory/settings.local.json` into the developer's
+  REAL profile. Round two closed the other five, which were three unrelated
+  things: one more file-mode assertion; kimi's fixtures writing a bare
+  `kimi` where `kimiCodePath` appends `.exe`, so findPath never saw the file
+  and the legacy path won (the inverse of the assertion); and qwen's
+  fixtures asserting Unix dot-dirs when `findPath`'s Windows branch only
+  probes `%APPDATA%/%LOCALAPPDATA%\npm` — now selected by GOOS, so Windows
+  gets real coverage rather than a skip. `test (windows-latest)` had its
+  `experimental` flag **removed**; all three OS legs are blocking.
+  `test (macos-latest)` had its flag removed in the final fix wave — it was
+  green on its first run and on every run since.
 - **Dependabot version updates work; Dependabot security *alerts* are
   disabled.** The two are separate features. Version updates began the moment
   `main` gained `.github/dependabot.yml` (it reads config from the *default*
