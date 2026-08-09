@@ -165,17 +165,30 @@ writesites: ## Landmine 6: show every write primitive outside tests
 
 ## ---- tooling and release --------------------------------------------
 
+# GOTOOLCHAIN=auto is required, not optional. All four tools' own go.mod
+# files now declare go >= 1.25 (golangci-lint 1.25.0, gosec 1.25.8,
+# x/vuln 1.25.0, actionlint 1.25.0 — three of them arrived via @latest, so
+# this became true without any change here), while THIS project's floor is
+# go 1.24.0. actions/setup-go injects GOTOOLCHAIN=local, which forbids
+# fetching a newer toolchain, so the audit job died on
+#   go: ...golangci-lint@v2.12.2 requires go >= 1.25.0
+#       (running go 1.24.0; GOTOOLCHAIN=local)
+# `auto` lets Go fetch a newer toolchain solely to BUILD these tools. It does
+# not change what builds or tests this project — that stays pinned to the
+# go.mod floor via go-version-file. This is safe against Landmine 25 because
+# the skew that breaks analysis is tool OLDER than the tree; a tool built by a
+# newer toolchain analyses older code fine.
 .PHONY: tools
 tools: ## Install the pinned lint/security tools with the local toolchain
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
-	go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
-	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+	GOTOOLCHAIN=auto go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	GOTOOLCHAIN=auto go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
+	GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	GOTOOLCHAIN=auto go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
 	@echo "installed into $(GOBIN)"
 
 .PHONY: tools-release
 tools-release: ## Install goreleaser (separate: it is a slow build)
-	go install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
+	GOTOOLCHAIN=auto go install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
 .PHONY: release-check
 release-check: ## Validate .goreleaser.yaml

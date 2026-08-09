@@ -493,13 +493,48 @@ not merge the two capabilities or route `Staged` launches through
 fork-and-wait "for consistency" — that would cost every zero-touch agent
 the clean process replacement Landmine 5 relies on, for no benefit.
 
-**25. Prebuilt Go analysis binaries break on toolchain skew — install them
-with the local toolchain.** `staticcheck`, `govulncheck`, and golangci-lint
-v1.64.8 all aborted on this machine with `file requires newer Go version
-go1.26 (application built with go1.25)` before analysing a single line. `make
-tools` `go install`s them instead, and CI does the same inside the job rather
-than downloading prebuilt binaries. If a tool suddenly refuses to run after a
-Go upgrade, this is why — re-run `make tools`, do not pin Go backwards.
+**25. Go toolchain skew breaks the analysis tools in BOTH directions, and the
+two have opposite remedies.** Both were hit for real, a day apart. Read which
+direction you are in before "fixing" anything.
+
+*Direction A — tool older than the tree.* Prebuilt analysis binaries break
+when your Go moves ahead of theirs: `staticcheck`, `govulncheck`, and
+golangci-lint v1.64.8 all aborted on this machine with `file requires newer Go
+version go1.26 (application built with go1.25)` before analysing a single
+line. A binary built by Go 1.25 cannot parse a tree compiled by Go 1.26.
+`make tools` `go install`s them from source instead, and CI does the same
+inside the job rather than downloading prebuilt binaries. If a tool suddenly
+refuses to run after a Go upgrade, this is why — re-run `make tools`, do not
+pin Go backwards.
+
+*Direction B — the tree's Go older than the tool.* The mirror image, and it
+took down the `audit` job on the very first CI run this project ever had
+(run 31306598239, 2026-08-09). All four pinned tools' own `go.mod` files
+declare `go >= 1.25` (golangci-lint 1.25.0, gosec 1.25.8, x/vuln 1.25.0,
+actionlint 1.25.0 — three of them arrived via `@latest`, so this became true
+without any change in this repo), while this project's floor is `go 1.24.0`.
+`actions/setup-go` injects `GOTOOLCHAIN=local` into every step of the job,
+which forbids fetching a newer toolchain, so `make tools` died immediately on:
+
+```
+go: github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2:
+    github.com/golangci/golangci-lint/v2@v2.12.2 requires go >= 1.25.0
+    (running go 1.24.0; GOTOOLCHAIN=local)
+```
+
+The remedy is `GOTOOLCHAIN=auto` on the `go install` lines in `tools` and
+`tools-release` — Go then fetches a newer toolchain **solely to build the
+tools**. What compiles and tests this project is untouched: that stays pinned
+to the `go.mod` floor via CI's `go-version-file: go.mod`, which is the entire
+point of testing on the floor. This does not reintroduce Direction A, because
+the skew that breaks analysis is tool *older* than the tree; a tool built by a
+newer toolchain analysing older code is fine.
+
+**Do NOT "fix" a Direction-B failure by raising `go.mod`'s `go` directive.**
+That silently drops every user on Go 1.24 in order to satisfy a linter's
+build requirement — trading the project's actual supported range for a
+tooling convenience. `go 1.24` is bubbletea's floor and a deliberate choice
+(see Open items); bump it only when the *product* needs it.
 
 **26. `.golangci.yml` must stay on the v2 schema.**
 `golangci-lint-action` v9 rejects v1 configs outright ("golangci-lint v1 is
@@ -716,6 +751,30 @@ there is no further Tier 3 work, and no Tier 4 exists to plan toward.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
+- **The first CI run settled the advisory OS legs, and the prediction was
+  wrong about macOS.** Run 31306598239, 2026-08-09, the first time this suite
+  had ever executed off Linux. **macOS: green** — fully, no failures. The
+  guess going in was that 22 of 50 test files reference Unix paths so both
+  legs would likely be red; macOS simply passed. **Windows: 19 failures in 2
+  of 9 packages** (`internal/agent` 18, `internal/launch` 1); `internal/tui`,
+  `internal/cli`, `internal/config`, `internal/openrouter`, `internal/version`
+  and the root package all passed. None of the 19 is a logic defect — they are
+  three clusters of platform semantics:
+  - six Unix home-dir `findPath` fallbacks (pi, hermes, qwen ×2, omp, kimi),
+    e.g. `CheckInstalled = false with binary at ~/.local/bin/hermes`;
+  - five `ShadowedCredential` fixtures (cline, hermes, pi, openclaw, kimi)
+    built on Unix-shaped credential paths;
+  - eight droid/staging tests, split between Windows path construction
+    (`open C:\Users\RUNNER~1\...\.factory\settings.local.json: The system
+    cannot find the path specified`) and the 0600 mode assertions Windows
+    cannot satisfy at all (`after Apply: mode = -rw-rw-rw-, want 0600
+    preserved`) — Windows has no POSIX permission bits, so Landmine 9's shape
+    is unassertable there as currently written.
+
+  Closing this means giving those tests platform-aware fixtures, not changing
+  the launchers. Until then `test (windows-latest)` stays `continue-on-error`;
+  `test (macos-latest)` is now a candidate to have the flag removed, since it
+  is green on its first run.
 - **Three of the six Phase 4a launchers ship doc-verified-only; their live
   gates were skipped by owner scope (Task 9), not run and failed:**
   - **qwen** — the `modelProviders` collision is the specific unresolved
