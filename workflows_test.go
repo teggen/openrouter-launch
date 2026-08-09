@@ -78,3 +78,14 @@ func TestWorkflowActionsArePinnedToShas(t *testing.T) {
 		}
 	}
 }
+
+func TestReleaseWorkflowPinsTheMakefilesGoreleaserVersion(t *testing.T) {
+	want := makefileVar(t, "GORELEASER_VERSION")
+	wf, err := os.ReadFile(".github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("reading release.yml: %v", err)
+	}
+	if !strings.Contains(string(wf), want) {
+		t.Errorf("release.yml does not pin goreleaser %s (the Makefile's GORELEASER_VERSION); `make snapshot` and the published release would be built by different versions", want)
+	}
+}
