@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-08 · **State:** Phase 2 complete — TUI shipped
+**Last updated:** 2026-08-08 · **State:** Phase 3 complete — codex, opencode, Tier 3 registry, live-verified
 
 Read this first if you are picking the project up with no prior context.
 
@@ -30,9 +30,10 @@ principle** and it is the design's central claim — see Landmine 6.
 | Branch | `main` — user chose direct-to-main, no feature branches |
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
-| Tests | 364 total, 175 of them in `internal/tui` |
+| Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
+| Tests | 371 total, 169 of them in `internal/tui` |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean, Linux/macOS/Windows cross-build |
-| Agents shipped | Claude Code only |
+| Agents shipped | claude, codex, opencode; 3 desktop apps registered unsupported |
 | Pushed | Yes — `origin/main` is current as of the TUI phase. It had been 47 commits behind for the whole planner refactor and TUI build; a revision of this file also wrongly claimed the refactor was already pushed. Check `git status -sb` rather than trusting this row. |
 
 Working commands, all smoke-tested against the live API:
@@ -44,19 +45,34 @@ openrouter-launch models --min-context 200000 --max-price 5
 openrouter-launch claude -m anthropic/claude-opus-4.6 -- --resume
 openrouter-launch profile add --name opus-cc --agent claude --model anthropic/claude-opus-4.6
 openrouter-launch profile list|launch|rm|rename
+openrouter-launch codex -m openai/gpt-4o-mini -- exec --skip-git-repo-check "…"
+openrouter-launch opencode -m openai/gpt-4o-mini -- run "…"
 ```
 
 Two more commands open interactive bubbletea screens and are **not** covered
 by that smoke-testing. This environment has no TTY, and `liveScreens()`
 (`internal/tui/program.go`) checks `isTTY()` before any catalog call — so
 both were only ever confirmed to refuse cleanly with no TTY attached. They
-never made an API call, and their interactive behavior (the picker, its
-filters, profile save) has not been driven by a human yet:
+never made an API call in that testing, and their interactive behavior had
+never been driven by a human — until the 2026-08-08 launch recorded below,
+which exercised the picker but not its filters or profile save:
 
 ```bash
 openrouter-launch                     # bare invocation: opens the root screen
 openrouter-launch claude              # no -m: straight to the picker
 ```
+
+**Agent-session smoke test, 2026-08-08 — the tool's first real end-to-end
+launch.** A human drove the interactive TUI, picked `moonshotai/kimi-k3` from
+the picker, and accepted the Landmine 7 advisory confirm for a
+non-`anthropic/*` model; the env handoff then produced a working Claude Code
+session against OpenRouter. That session was sanity-checked from inside: Bash
+execution, read-only git, the Read tool, and a create/read/delete write
+confined to `/tmp` all worked, and no project files were touched. Tool-use
+round-trips through the proxy are functional on a non-`anthropic/*` model —
+direct evidence for Landmine 7's "works for many models". Which picker
+features the launch exercised went unrecorded; the sub-features remain open —
+see Open items.
 
 ## Where things are
 
@@ -258,6 +274,26 @@ This shipped once. The full accounting is in the constant's comment in
 `internal/tui/picker.go`; `TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights`
 pins it against the renderer's actual arithmetic.
 
+**18. Codex's `wire_api` value was wrong in the plan and the design doc —
+`"chat"` is rejected outright by codex ≥0.146.1.** The Phase 3 plan, and the
+ollama source it was ported from, specified `wire_api="chat"`. Live
+verification (2026-08-08, `.superpowers/sdd/2026-08-08-phase-3-agents/`) ran
+that exact value against a real `codex exec` and got a config-load-time
+error, not a network failure:
+
+```
+Error loading config.toml: `wire_api = "chat"` is no longer supported.
+How to fix: set `wire_api = "responses"` in your provider config.
+```
+
+(full transcript: `live-codex-chat-rejected.log`). `"responses"` was tried
+next and produced a real completion through OpenRouter
+(`live-codex-raw.log`, `live-codex-orl.log`). `internal/agent/codex.go` now
+emits `wire_api="responses"` — this is the live-verified value, not a
+guess. If you are "fixing" this back to `"chat"` because it matches an
+older doc, a stale memory of the ollama source, or looks more idiomatic:
+don't. That value is falsified and breaks codex on any version ≥0.146.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
@@ -303,24 +339,49 @@ built.
 
 ## Phase 3+ — more agents
 
-The spec's agent tiers are in the design doc. Tier 1 (mechanism verified):
-`claude` shipped; `codex` (repeated `-c` overrides) and `opencode`
-(`OPENCODE_CONFIG_CONTENT` inline JSON) are next and their mechanisms are
-confirmed from the ollama source. Tier 2 (`qwen`, `droid`, `hermes`, `cline`,
-`kimi`, `omp`, `openclaw`, `pi`) each need their mechanism verified against their
-own documentation *before* code is written. Tier 3 (`copilot`, `pool`, and the
-desktop apps) genuinely cannot be pointed at OpenRouter and stay registered with a
-stated reason.
+The spec's agent tiers are in the design doc. **Tier 1 is complete**:
+`claude`, `codex` (managed `-c` overrides + `-m`, `wire_api="responses"` —
+live-verified on codex 0.146.1, see Landmine 18), and `opencode`
+(`OPENCODE_CONFIG_CONTENT` minimal inline JSON + `OPENROUTER_API_KEY`
+env-only auth, first-slash model split — live-verified on opencode 1.0.69)
+all ship, plus `chatgpt`, `claude-desktop`, and `hermes-desktop` registered
+unsupported-with-reason. Both new launchers were verified end to end through
+the built binary too (`orl codex -- exec …`, `orl opencode -- run …`), so
+root-level `-m` before a passthrough subcommand parses fine on codex
+0.146.1 — the passthrough-ordering risk the design doc flagged did not
+materialize.
+
+**Next is Tier 2**: `qwen`, `droid`, `hermes`, `cline`, `kimi`, `omp`,
+`openclaw`, `pi` — eight agents, each needing its mechanism verified against
+its own documentation *before* code is written, the same discipline Tier 1
+followed (and the same discipline that caught codex's `wire_api` value being
+wrong — see Landmine 18).
+
+Tier 3 desktop apps genuinely cannot be pointed at OpenRouter and stay
+registered with a stated reason. **Owner decision:** `copilot`, `pool`, and
+`vscode` — though listed in the main spec's Tier 3 table — are deliberately
+**not** registered; `openrouter-launch copilot` (etc.) reporting "unknown
+agent" is accepted behavior, not a gap to fill.
 
 ## Open items
 
-- **The interactive TUI has never been driven by a human.** `openrouter-launch`
-  (bare) and `openrouter-launch claude` (no `-m`) have only ever been run headless,
-  with no TTY attached, so `liveScreens()` refused before making a catalog call —
-  see "Working commands" above. Still unverified by a human: the root screen
-  (profiles + agents), the picker's type-to-search and `alt+t/f/c/p` filter
-  chords, `ctrl+s` profile save, `esc` navigation back out of a screen, and
-  whether filter state actually persists to `config.json` on exit.
+- **The interactive TUI was driven by a human for the first time in the
+  2026-08-08 smoke-test launch** (see "Current state"): the picker rendered,
+  `moonshotai/kimi-k3` was picked, the Landmine 7 advisory confirm was
+  accepted, and the handoff produced a working session. Which entry point was
+  used — bare `openrouter-launch` (root screen) or `openrouter-launch claude`
+  (straight to the picker) — went unrecorded, so the root screen specifically
+  remains human-unverified. Also still unverified: the picker's type-to-search
+  and `alt+t/f/c/p` filter chords, `ctrl+s` profile save, `esc` navigation
+  back out of a screen, and whether filter state actually persists to
+  `config.json` on exit.
+- **`codex` and `opencode`'s interactive TUIs are not yet driven by a
+  human.** Both were live-verified against OpenRouter (Task 4,
+  2026-08-08) only through headless one-shot invocations — `codex exec
+  --skip-git-repo-check` and `opencode run`, both directly and through the
+  built binary. Nobody has yet sat at `openrouter-launch codex` or
+  `openrouter-launch opencode` with no passthrough args and driven the
+  agent's own interactive session end to end.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
