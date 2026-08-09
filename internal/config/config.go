@@ -76,7 +76,11 @@ func Save(cfg *Config) error {
 		return err
 	}
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	// 0700, not 0755: this directory holds the API key file. The file is
+	// 0600, so the mode here only governs whether others can see that it
+	// exists and when it changed — but on macOS every user shares the
+	// `staff` group, so "group" is not a narrower audience than "world".
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create config dir: %w", err)
 	}
 

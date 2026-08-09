@@ -98,14 +98,16 @@ func (c *Cache) read() (cacheFile, bool) {
 // write persists the cache. Failures are ignored: a cache miss is recoverable
 // and must never block a launch.
 func (c *Cache) write(cf cacheFile) {
-	if err := os.MkdirAll(filepath.Dir(c.Path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.Path), 0o700); err != nil {
 		return
 	}
 	data, err := json.Marshal(cf)
 	if err != nil {
 		return
 	}
-	_ = os.WriteFile(c.Path, data, 0o644)
+	// 0600/0700 despite holding nothing secret — the catalog is public. This
+	// process is the only reader, so the broader modes bought nothing.
+	_ = os.WriteFile(c.Path, data, 0o600)
 }
 
 // CachePath returns the on-disk catalog cache location.

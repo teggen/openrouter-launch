@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -56,6 +57,38 @@ func TestCacheFetchesWhenEmpty(t *testing.T) {
 	}
 	if _, err := os.Stat(c.Path); err != nil {
 		t.Errorf("cache file not written: %v", err)
+	}
+}
+
+// TestCacheWriteKeepsFileAndDirPrivate pins least privilege on write site
+// #1. Nothing secret is in the catalog cache, which is exactly why it had
+// drifted to 0644/0755 — but nothing outside this process reads it either,
+// so there is no cost to closing it. Asserting the group/other bits rather
+// than an exact mode keeps the test honest under a stricter umask; under the
+// usual 0022 the modes are exactly 0600 and 0700.
+func TestCacheWriteKeepsFileAndDirPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not meaningful on Windows")
+	}
+	c := newTestCache(t, &stubCatalog{models: testModels()}, time.Unix(1000, 0))
+	c.Path = filepath.Join(filepath.Dir(c.Path), "cachedir", "models.json")
+
+	if _, err := c.Load(context.Background(), false); err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	info, err := os.Stat(c.Path)
+	if err != nil {
+		t.Fatalf("Stat file: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("cache file mode = %o, want no group or other access (0600)", perm)
+	}
+	dirInfo, err := os.Stat(filepath.Dir(c.Path))
+	if err != nil {
+		t.Fatalf("Stat dir: %v", err)
+	}
+	if perm := dirInfo.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("cache dir mode = %o, want no group or other access (0700)", perm)
 	}
 }
 

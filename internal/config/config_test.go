@@ -118,6 +118,31 @@ func TestSaveWritesFileMode0600(t *testing.T) {
 	}
 }
 
+// TestSaveCreatesConfigDirPrivate pins the directory around the API key.
+// The file itself is 0600 (above), but a group- or world-traversable parent
+// still leaks its existence, size, and mtime — and on macOS, where every
+// user shares the `staff` group, group access is other users' access. The
+// assertion is on the group/other bits rather than an exact mode so a
+// developer with a stricter umask does not see a spurious failure; under the
+// usual 0022 it is exactly 0700.
+func TestSaveCreatesConfigDirPrivate(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("file modes are not meaningful on Windows")
+	}
+	path := withTempConfig(t)
+
+	if err := Save(&Config{APIKey: "secret"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	info, err := os.Stat(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("config dir mode = %o, want no group or other access (0700)", perm)
+	}
+}
+
 func TestSavePreservesProfileOrder(t *testing.T) {
 	withTempConfig(t)
 
