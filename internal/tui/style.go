@@ -33,6 +33,54 @@ func cursorCell(selected bool) string {
 	return " "
 }
 
+// hintSeparator joins key hints on one line.
+const hintSeparator = " · "
+
+// hintLines packs key hints into lines at most width columns wide.
+//
+// It breaks BETWEEN hints, never inside one: a hint split across lines
+// ("ctrl+s save pro" / "file") reads as two broken things rather than one
+// wrapped thing, and the whole point of the footer is that a glance finds
+// the key. A single hint wider than width is emitted whole — there is
+// nothing useful to do with it, and the terminal will cut it.
+//
+// width <= 0 means the terminal size is not known yet (no WindowSizeMsg has
+// arrived), so everything goes on one line rather than one hint per line.
+func hintLines(hints []string, width int) []string {
+	if len(hints) == 0 {
+		return nil
+	}
+	if width <= 0 {
+		return []string{strings.Join(hints, hintSeparator)}
+	}
+
+	var (
+		lines []string
+		cur   string
+	)
+	for _, h := range hints {
+		switch {
+		case cur == "":
+			cur = h
+		case lipgloss.Width(cur+hintSeparator+h) <= width:
+			cur += hintSeparator + h
+		default:
+			lines = append(lines, cur)
+			cur = h
+		}
+	}
+	return append(lines, cur)
+}
+
+// clampLine truncates s to width columns, marking the cut. width <= 0 (no
+// WindowSizeMsg yet) leaves it alone.
+func clampLine(s string, width int) string {
+	if width <= 0 {
+		return s
+	}
+	return truncate(s, width)
+}
+
 // truncate shortens s to at most n runes, marking the cut with an ellipsis.
 // Runes, not bytes: descriptions are not ASCII, and a byte-wise cut would
 // emit invalid UTF-8.

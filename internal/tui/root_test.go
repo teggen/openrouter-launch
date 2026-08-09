@@ -326,3 +326,29 @@ func TestRootRangeIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
 		t.Errorf("an unscrolled view shows a range indicator:\n%s", got)
 	}
 }
+
+// The root screen's footer wraps too, and unlike the picker it needs no
+// height budget: View measures its own output and shrinks the window until
+// it fits, so extra footer lines simply cost model rows.
+func TestRootViewStaysWithinTheTerminalWidth(t *testing.T) {
+	for _, width := range []int{30, 40, 60, 80} {
+		m := newRootModel(rootInput{
+			Profiles:  []config.Profile{{Name: "p1", Agent: "claude", Model: "m"}},
+			Agents:    manyAgents(),
+			Installed: allInstalled,
+		})
+		next, _ := m.Update(tea.WindowSizeMsg{Width: width, Height: 40})
+		m = next.(rootModel)
+
+		for i, line := range strings.Split(m.View(), "\n") {
+			// The tables have a floor of their own and are allowed to
+			// overflow a very narrow terminal; the footer is not.
+			if strings.ContainsAny(line, "╭│├╰") {
+				continue
+			}
+			if got := lipgloss.Width(line); got > width {
+				t.Errorf("width=%d: line %d is %d columns:\n%q", width, i, got, line)
+			}
+		}
+	}
+}

@@ -269,16 +269,20 @@ func (m rootModel) render(start, end int) string {
 		b.WriteString(indent(m.sectionTable(run, i)) + "\n")
 	}
 
-	footer := "  ↑/↓ move · enter select · esc quit"
+	hints := []string{"↑/↓ move", "enter select", "esc quit"}
 	if start > 0 || end < len(m.rows) {
 		// Only when something is off screen, so a scrolled screen is never
 		// silently truncated — and an unscrolled one carries no noise.
-		footer += fmt.Sprintf("    %d-%d of %d",
+		hints = append(hints, fmt.Sprintf("%d-%d of %d",
 			countSelectable(m.rows[:start])+1,
 			countSelectable(m.rows[:end]),
-			countSelectable(m.rows))
+			countSelectable(m.rows)))
 	}
-	b.WriteString(dimStyle.Render(footer) + "\n")
+	// A wrapped footer costs rows, but View measures its own output and
+	// shrinks the window until it fits, so nothing here needs a budget.
+	for _, line := range hintLines(hints, m.width-2) {
+		b.WriteString(dimStyle.Render("  "+line) + "\n")
+	}
 	return b.String()
 }
 

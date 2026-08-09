@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -399,26 +400,19 @@ func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
 				Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
 			})
 
-			// Every line of the TABLE — borders and header included, not
-			// just the model rows, since they overflow just as visibly.
-			//
-			// Scoped to the table on purpose: the key-hints footer is a
-			// fixed 85 columns and overflows a narrow terminal too, but
-			// that predates this screen having a table at all and wrapping
-			// it is a separate decision. Widening this test to the whole
-			// view would fold an unrelated bug into this one's contract.
+			// EVERY line, not just the table's: the title, the description
+			// pane, the status line, and the key footer are all chrome that
+			// used to be written at whatever width its content happened to
+			// be. The footer in particular was a fixed 85 columns.
 			var checked int
 			for i, line := range strings.Split(m.View(), "\n") {
-				if !strings.ContainsAny(line, "╭│├╰") {
-					continue
-				}
 				checked++
 				if got := lipgloss.Width(line); got > width {
-					t.Errorf("table line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
+					t.Errorf("line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
 				}
 			}
 			if checked == 0 {
-				t.Fatalf("no table lines found, so this asserted nothing:\n%s", m.View())
+				t.Fatalf("no lines rendered, so this asserted nothing")
 			}
 		})
 	}
@@ -562,5 +556,64 @@ func TestPickerScrollsToKeepTheCursorVisible(t *testing.T) {
 	if m.cursor < m.offset || m.cursor >= m.offset+m.listHeight() {
 		t.Errorf("cursor %d outside the window [%d, %d)",
 			m.cursor, m.offset, m.offset+m.listHeight())
+	}
+}
+
+// A long search query is user-controlled and unbounded, so the title line
+// is the one piece of chrome that can overflow no matter how wide the
+// terminal is. Landmine 17 is specifically about this line staying visible.
+func TestPickerTitleLineStaysWithinTheTerminal(t *testing.T) {
+	const width = 60
+	m := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+	})
+	m = press(t, m, typeRunes(strings.Repeat("search-term-", 10))...)
+
+	title := strings.Split(m.View(), "\n")[0]
+	if got := lipgloss.Width(title); got > width {
+		t.Errorf("title line is %d columns wide, want at most %d:\n%q", got, width, title)
+	}
+}
+
+// The footer wraps rather than overflowing, and every extra line it takes
+// has to come out of the list — otherwise it pushes the title off the top,
+// which is Landmine 17's outcome by another route.
+func TestPickerFooterWrapsAndIsPaidForOutOfTheList(t *testing.T) {
+	wide := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+	})
+	narrow := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 40,
+	})
+
+	if len(wide.footer()) != 1 {
+		t.Errorf("a 100-column terminal wrapped the footer into %d lines", len(wide.footer()))
+	}
+	if len(narrow.footer()) < 2 {
+		t.Fatalf("a 40-column terminal did not wrap the footer: %q", narrow.footer())
+	}
+	// Same terminal height, more footer lines, so fewer model rows.
+	if narrow.listHeight() >= wide.listHeight() {
+		t.Errorf("listHeight = %d narrow vs %d wide: the extra footer lines were not paid for",
+			narrow.listHeight(), wide.listHeight())
+	}
+	// And the whole view still fits, title included.
+	if got := len(strings.Split(narrow.View(), "\n")); got > 24 {
+		t.Errorf("View split into %d lines, want at most 24:\n%s", got, narrow.View())
+	}
+}
+
+// hintLines must never split one hint across two lines: "ctrl+s save pro" /
+// "file" reads as two broken things rather than one wrapped thing.
+func TestHintLinesBreakBetweenHintsNeverInsideOne(t *testing.T) {
+	for _, width := range []int{20, 30, 40, 60, 100} {
+		for _, line := range hintLines(pickerHints, width) {
+			for _, part := range strings.Split(line, hintSeparator) {
+				if !slices.Contains(pickerHints, part) {
+					t.Errorf("width %d produced %q, which is not a whole hint (line %q)",
+						width, part, line)
+				}
+			}
+		}
 	}
 }

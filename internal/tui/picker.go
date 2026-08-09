@@ -48,9 +48,29 @@ var tableFrame = lipgloss.Height(theme.Render(ui.Table{
 	Rows:    [][]string{append([]string{" "}, ui.ModelCells(openrouter.Model{})...)},
 })) - 1
 
+// pickerHints is the key footer, one hint per element so hintLines can
+// break between them on a narrow terminal instead of overflowing.
+var pickerHints = []string{
+	"alt+t tools", "alt+f free", "alt+c ctx", "alt+p price",
+	"ctrl+s save profile", "esc back",
+}
+
+// footer is the key hints, packed to the terminal width.
+func (m pickerModel) footer() []string {
+	return hintLines(pickerHints, m.width-2) // 2 for the indent View adds
+}
+
 // chromeHeight is the budget subtracted from the terminal height to get
 // listHeight().
-var chromeHeight = nonListChrome + tableFrame
+//
+// It is a method, not a constant, because the footer wraps: nonListChrome
+// counts ONE footer line, so every extra one costs a model row. A fixed
+// budget here would let the footer push the list — and with it the title —
+// off the top of the screen, which is Landmine 17's outcome by yet another
+// route.
+func (m pickerModel) chromeHeight() int {
+	return nonListChrome + tableFrame + len(m.footer()) - 1
+}
 
 type pickerInput struct {
 	Agent   *agent.Spec
@@ -151,7 +171,7 @@ func (m pickerModel) listHeight() int {
 	if m.height <= 0 {
 		return defaultListHeight
 	}
-	if h := m.height - chromeHeight; h > 0 {
+	if h := m.height - m.chromeHeight(); h > 0 {
 		return h
 	}
 	return 1
@@ -428,8 +448,10 @@ func (m pickerModel) View() string {
 	if m.agent != nil {
 		name = m.agent.Launcher.DisplayName()
 	}
-	b.WriteString(titleStyle.Render("Model for "+name) + "    " +
-		dimStyle.Render("search: "+m.filters.search) + "\n\n")
+	// Clamped: the search echo grows as the user types, and Landmine 17 is
+	// about this line in particular staying visible.
+	b.WriteString(clampLine(titleStyle.Render("Model for "+name)+"    "+
+		dimStyle.Render("search: "+m.filters.search), m.width) + "\n\n")
 
 	b.WriteString(indent(m.modelTable()) + "\n\n")
 	desc := ""
@@ -444,10 +466,11 @@ func (m pickerModel) View() string {
 		b.WriteString("  " + dimStyle.Render(line) + "\n")
 	}
 
-	b.WriteString("\n  " + m.filters.label() + "    " +
-		dimStyle.Render(fmt.Sprintf("%d of %d models", len(m.visible), len(m.all))) + "\n")
-	b.WriteString(dimStyle.Render(
-		"  alt+t tools · alt+f free · alt+c ctx · alt+p price · ctrl+s save profile · esc back") + "\n")
+	b.WriteString("\n" + clampLine("  "+m.filters.label()+"    "+
+		dimStyle.Render(fmt.Sprintf("%d of %d models", len(m.visible), len(m.all))), m.width) + "\n")
+	for _, line := range m.footer() {
+		b.WriteString(dimStyle.Render("  "+line) + "\n")
+	}
 
 	return b.String()
 }
