@@ -8,6 +8,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 func TestProfileAddAndList(t *testing.T) {
@@ -140,5 +141,69 @@ func TestProfileListEmpty(t *testing.T) {
 	got := h.run(t, "profile", "list")
 	if !strings.Contains(strings.ToLower(got), "no profiles") {
 		t.Errorf("expected an empty-state message, got:\n%s", got)
+	}
+}
+
+func TestProfileListShowsAgentInstallState(t *testing.T) {
+	profiles := []config.Profile{{Name: "p1", Agent: "claude", Model: "anthropic/x"}}
+	lookup := func(string) (*agent.Spec, error) {
+		return &agent.Spec{
+			Name: "claude", Launcher: wideLauncher{},
+			Status: agent.Status{Supported: true},
+		}, nil
+	}
+
+	out := ui.NewTheme(new(strings.Builder)).Render(
+		profilesTable(profiles, lookup, func(*agent.Spec) bool { return false }))
+
+	if got := tableRow(t, out, "p1")[2]; got != "✗ not installed" {
+		t.Errorf("status = %q, want %q", got, "✗ not installed")
+	}
+}
+
+// A profile naming an agent that is no longer registered. `profile add`
+// validates the name, so this arrives only from a hand-edited config or an
+// agent dropped between releases — and without this column the failure is
+// invisible until you try to launch it.
+func TestProfileListFlagsAnUnknownAgent(t *testing.T) {
+	profiles := []config.Profile{{Name: "old", Agent: "vscode", Model: "openai/x"}}
+	lookup := func(string) (*agent.Spec, error) { return nil, agent.ErrUnknownAgent }
+
+	out := ui.NewTheme(new(strings.Builder)).Render(
+		profilesTable(profiles, lookup, func(*agent.Spec) bool { return true }))
+
+	if got := tableRow(t, out, "old")[2]; got != "⚠ unknown agent" {
+		t.Errorf("status = %q, want %q", got, "⚠ unknown agent")
+	}
+}
+
+func TestProfileListRendersNameAgentModelAndArgs(t *testing.T) {
+	h := newHarness(t)
+	h.run(t, "profile", "add", "--name", "opus-cc", "--agent", "claude",
+		"--model", "anthropic/claude-opus-4.6", "--", "--resume")
+
+	out := h.run(t, "profile", "list")
+	wantColumns(t, out, "NAME", "AGENT", "STATUS", "MODEL", "ARGS")
+
+	row := tableRow(t, out, "opus-cc")
+	for i, want := range map[int]string{1: "claude", 3: "anthropic/claude-opus-4.6", 4: "--resume"} {
+		if row[i] != want {
+			t.Errorf("column %d = %q, want %q", i, row[i], want)
+		}
+	}
+}
+
+func TestProfileListEmptyStateIsUnchanged(t *testing.T) {
+	h := newHarness(t)
+	if got := h.run(t, "profile", "list"); !strings.Contains(got, "No profiles saved.") {
+		t.Errorf("empty state = %q, want the add hint", got)
+	}
+}
+
+func TestProfileListEmitsNoEscapesWhenNotATerminal(t *testing.T) {
+	h := newHarness(t)
+	h.run(t, "profile", "add", "--name", "p", "--agent", "claude", "--model", "anthropic/x")
+	if got := h.run(t, "profile", "list"); strings.Contains(got, "\x1b") {
+		t.Errorf("profile list emitted ANSI escapes to a buffer:\n%q", got)
 	}
 }

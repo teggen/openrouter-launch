@@ -167,13 +167,39 @@ func tableRows(t *testing.T, out string) [][]string {
 }
 
 // tableRow returns the body row whose first cell is name.
+//
+// It fails rather than returning a short row when the table has fewer
+// columns than its header, so a dropped column reports itself instead of
+// panicking out of an index expression several lines later — which takes
+// the whole test binary with it and hides every other failure.
 func tableRow(t *testing.T, out, name string) []string {
 	t.Helper()
-	for _, row := range tableRows(t, out)[1:] {
-		if row[0] == name {
-			return row
+	rows := tableRows(t, out)
+	for _, row := range rows[1:] {
+		if row[0] != name {
+			continue
 		}
+		if len(row) != len(rows[0]) {
+			t.Fatalf("row %q has %d cells, header has %d:\n%s",
+				name, len(row), len(rows[0]), out)
+		}
+		return row
 	}
 	t.Fatalf("no row named %q in output:\n%s", name, out)
 	return nil
+}
+
+// wantColumns fails unless the table's header has exactly these columns.
+// Position-indexed assertions are only meaningful against a known header.
+func wantColumns(t *testing.T, out string, want ...string) {
+	t.Helper()
+	got := tableRows(t, out)[0]
+	if len(got) != len(want) {
+		t.Fatalf("header = %q, want %q", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("header = %q, want %q", got, want)
+		}
+	}
 }

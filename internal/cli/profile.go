@@ -3,13 +3,13 @@ package cli
 import (
 	"fmt"
 	"strings"
-	"text/tabwriter"
 
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 func newProfileCmd(a *app) *cobra.Command {
@@ -37,17 +37,61 @@ func newProfileListCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			out := cmd.OutOrStdout()
 			if len(cfg.Profiles) == 0 {
-				fmt.Fprintln(cmd.OutOrStdout(), "No profiles saved. Add one with: openrouter-launch profile add --name <n> --agent <a> --model <slug>")
+				fmt.Fprintln(out, "No profiles saved. Add one with: openrouter-launch profile add --name <n> --agent <a> --model <slug>")
 				return nil
 			}
+			_, err = fmt.Fprintln(out,
+				ui.NewTheme(out).Render(profilesTable(cfg.Profiles, agent.Lookup, agent.Installed)))
+			return err
+		},
+	}
+}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "NAME\tAGENT\tMODEL\tARGS")
-			for _, p := range cfg.Profiles {
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", p.Name, p.Agent, p.Model, strings.Join(p.Args, " "))
+// profilesTable builds the listing.
+//
+// lookup and installed are injected for the same reason agentsTable takes
+// them: a profile naming an unregistered agent cannot be created through
+// the CLI — profile add validates the name — so a test can only reach that
+// row by supplying its own lookup. Without the STATUS column that failure
+// stays invisible until launch time.
+func profilesTable(
+	profiles []config.Profile,
+	lookup func(string) (*agent.Spec, error),
+	installed func(*agent.Spec) bool,
+) ui.Table {
+	var (
+		rows  [][]string
+		roles []ui.Role
+	)
+	for _, p := range profiles {
+		status, role := ui.UnknownAgentStatus()
+		if spec, err := lookup(p.Agent); err == nil {
+			status, role = ui.AgentStatus(spec, installed(spec))
+		}
+		rows = append(rows, []string{p.Name, p.Agent, status, p.Model, strings.Join(p.Args, " ")})
+		roles = append(roles, role)
+	}
+
+	return ui.Table{
+		Headers:  []string{"NAME", "AGENT", "STATUS", "MODEL", "ARGS"},
+		Rows:     rows,
+		MaxWidth: ui.MaxTableWidth,
+		Role: func(row, col int) ui.Role {
+			if row < 0 || row >= len(roles) {
+				return ui.RolePlain
 			}
-			return w.Flush()
+			switch col {
+			case 0:
+				return ui.RoleAccent
+			case 2:
+				return roles[row]
+			case 4:
+				return ui.RoleDim
+			default:
+				return ui.RolePlain
+			}
 		},
 	}
 }
