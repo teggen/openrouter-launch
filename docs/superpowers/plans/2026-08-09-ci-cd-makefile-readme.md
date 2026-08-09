@@ -908,6 +908,27 @@ silently report 'dev'."
 - Create: `.github/workflows/ci.yml`
 - Create: `.github/dependabot.yml`
 - Create: `workflows_test.go` (package `main`, repo root)
+- Modify: `Makefile` (add the `lint-cross` target described below, and add it to the `ci` aggregate)
+
+**Added after Task 3 (do this first, before writing the workflow):** Task 3
+established that golangci-lint only ever examines the current `GOOS`, so
+`internal/agent/exec_windows.go` had never been linted by anything and did in
+fact carry a real finding. `make lint` alone therefore does not mean "the tree
+is lint-clean". Add to the `Makefile`, beside `lint`:
+
+```makefile
+.PHONY: lint-cross
+lint-cross: ## Lint the build-tagged files the default GOOS never sees
+	@test -x $(GOBIN)/golangci-lint || command -v golangci-lint >/dev/null || { \
+	  echo "golangci-lint missing — run: make tools"; exit 1; }
+	GOOS=windows $(or $(wildcard $(GOBIN)/golangci-lint),golangci-lint) run ./...
+	GOOS=darwin  $(or $(wildcard $(GOBIN)/golangci-lint),golangci-lint) run ./...
+```
+
+It falls back to a `PATH`-resolved `golangci-lint` because CI's
+`golangci-lint-action` installs the binary onto `PATH` rather than into
+`$(GOBIN)`. Then add `lint-cross` to the `ci` aggregate target's dependency
+list, immediately after `lint`. Leave `pre-commit` alone — it stays fast.
 
 **Interfaces:**
 - Consumes: every Makefile target from Task 2; `.golangci.yml` from Task 3.
@@ -1032,6 +1053,12 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
           version: v2.12.2
+      # The action lints the default GOOS only, so every build-tagged file for
+      # another platform is invisible to it — internal/agent/exec_windows.go
+      # had never been linted at all until Task 3 checked by hand. The action
+      # puts golangci-lint on PATH, so this reuses the binary it installed.
+      - name: Lint the build-tagged files the default GOOS never sees
+        run: make lint-cross
       - run: make tidy-check
       - run: make cross
 
