@@ -1,0 +1,132 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make fmt-check
+      - run: make vet
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12.2
+      # The action lints the default GOOS only, so every build-tagged file for
+      # another platform is invisible to it — internal/agent/exec_windows.go
+      # had never been linted at all until Task 3 checked by hand. The action
+      # puts golangci-lint on PATH, so this reuses the binary it installed.
+      - name: Lint the build-tagged files the default GOOS never sees
+        run: make lint-cross
+      - run: make tidy-check
+      - run: make cross
+
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Built with THIS job's toolchain on purpose. Prebuilt analysis
+      # binaries abort on toolchain skew ("file requires newer Go version").
+      - name: Install pinned tools
+        run: make tools
+      - name: govulncheck, go mod verify, advisory gosec
+        run: make security
+      - name: gosec SARIF report
+        if: always()
+        run: $(go env GOPATH)/bin/gosec -quiet -no-fail -fmt sarif -out gosec.sarif ./...
+      - name: Upload SARIF to the Security tab
+        if: always()
+        continue-on-error: true
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3 # v4
+        with:
+          sarif_file: gosec.sarif
+      - name: Keep the SARIF as an artifact too
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: gosec-sarif
+          path: gosec.sarif
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # Windows and macOS have never run this suite. They start advisory so a
+    # red result reports the gap instead of blocking every push; remove the
+    # flag per-OS as each goes green. That removal is the definition of done
+    # for HANDOFF's "Windows exit-code propagation is unverified" item.
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            experimental: false
+          - os: macos-latest
+            experimental: true
+          - os: windows-latest
+            experimental: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      # Called directly rather than through make: GNU make is not worth
+      # assuming on the Windows runner for a single command.
+      - name: Test
+        run: go test ./... -count=1
+      - name: Race detector (TUI)
+        if: matrix.os == 'ubuntu-latest'
+        run: make test-race
+      - name: Coverage
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          make cover-check 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Coverage HTML
+        if: matrix.os == 'ubuntu-latest'
+        run: make cover-html
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: matrix.os == 'ubuntu-latest'
+        with:
+          name: coverage-html
+          path: coverage.html
+
+  machine-independence:
+    # Landmine 8. Its own job, not a step inside `test`: this is the check
+    # this repo has historically needed most, and a green tick next to the
+    # name is the point.
+    name: machine-independence (Landmine 8)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: make test-isolated

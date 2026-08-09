@@ -94,6 +94,13 @@ lint-workflows: ## Validate the GitHub Actions YAML
 	@test -x $(GOBIN)/actionlint || { echo "actionlint missing — run: make tools"; exit 1; }
 	$(GOBIN)/actionlint
 
+.PHONY: lint-cross
+lint-cross: ## Lint the build-tagged files the default GOOS never sees
+	@test -x $(GOBIN)/golangci-lint || command -v golangci-lint >/dev/null || { \
+	  echo "golangci-lint missing — run: make tools"; exit 1; }
+	GOOS=windows $(or $(wildcard $(GOBIN)/golangci-lint),golangci-lint) run ./...
+	GOOS=darwin  $(or $(wildcard $(GOBIN)/golangci-lint),golangci-lint) run ./...
+
 ## ---- security --------------------------------------------------------
 
 .PHONY: security
@@ -186,4 +193,4 @@ snapshot: ## Build every release artifact locally, publishing nothing
 pre-commit: clean fmt-check vet lint security test ## The /quality gate
 
 .PHONY: ci
-ci: fmt-check vet lint tidy-check cross security test-race cover-check test-isolated ## Everything CI runs
+ci: fmt-check vet lint lint-cross tidy-check cross security test-race cover-check test-isolated ## Everything CI runs
