@@ -92,8 +92,11 @@ jobs:
       # finds nothing, and -no-fail additionally swallows a failed SSA build
       # (it exits 0 having analysed nothing). Combined with continue-on-error
       # on the upload, that chain can go green having performed zero security
-      # analysis — masked today only by the tree happening to have ~19
-      # findings. Without -quiet the SARIF is written unconditionally, so a
+      # analysis — masked today only by the tree happening to have 14
+      # findings. (Dismissing an alert in the Security tab changes its state
+      # on GitHub's side only; gosec still emits all 14 into the SARIF, so
+      # this masking is unchanged by the 2026-08-09 triage.) Without -quiet
+      # the SARIF is written unconditionally, so a
       # missing file becomes a real signal that the artifact step can catch.
       #
       # The log is teed because it is the ONLY place a failed analysis leaves

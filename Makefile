@@ -115,7 +115,7 @@ lint-cross: ## Lint the build-tagged files the default GOOS never sees
 
 # gosec's `test -x` guard is NOT redundant with the `-` prefix on its recipe
 # line. The `-` tells make to ignore that line's exit status, which is what
-# keeps gosec's ~19 findings advisory — but it ignores "No such file or
+# keeps gosec's 14 remaining findings advisory — but it ignores "No such file or
 # directory" just as happily. With gosec uninstalled this target printed
 #   make: $(GOBIN)/gosec: No such file or directory
 #   make: [Makefile:112: security] Error 127 (ignored)

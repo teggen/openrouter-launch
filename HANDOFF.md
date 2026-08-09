@@ -33,7 +33,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **448** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Tests | **452** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). 448 before the 2026-08-09 code-scanning triage, which added 4 permission tests (config dir, cache file+dir, staged-file dir, `~/.factory`). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
@@ -593,7 +593,7 @@ go)` and keeps the rest of the stripping intact — the point is hiding
 
 **28. `gosec` exiting 0 is not evidence that gosec ran — but this is
 narrower coverage than "catches a broken tree", not general insurance
-against one.** `-no-fail` is what keeps this repo's ~19 findings advisory,
+against one.** `-no-fail` is what keeps this repo's 14 findings advisory,
 and it also swallows the case where the analysis never happened. Measured on
 a deliberately broken package, then on this real tree with one type error
 added to `internal/launch/plan.go`:
@@ -651,6 +651,31 @@ narrower gap and neither is optional:
   findings advisory — but it ignored `Error 127 (ignored)` just as happily,
   so with gosec uninstalled `make security` exited **0** having run no gosec
   at all. gosec was the only tool there without the guard its siblings have.
+
+**29. The 14 gosec findings `make security` still prints are triaged false
+positives, dismissed in the Security tab — do not "fix" them, and do not
+add `#nosec`.** Code scanning had 19 open alerts on 2026-08-09. Five were
+real least-privilege drift and were fixed (see the commit "close the five
+gosec permission findings"); the other 14 were each checked against the
+code and dismissed with a per-alert reason. Dismissal is a GitHub-side
+state only: gosec still emits all 14 locally and into the SARIF, so seeing
+them in `make security` output is expected, not a regression.
+
+| Rule | × | Sites | Why it is not a defect |
+|---|---|---|---|
+| G101 | 2 | `config.go:12`, `droid.go:90` | The first is a const holding an env var *name*; the second is the literal `"${OPENROUTER_API_KEY}"`, droid's own interpolation syntax — the mechanism that keeps the key **off** disk. Neither is a credential. |
+| G117 | 1 | `config.go:83` | The `APIKey` field really is marshaled — that is write site #2, the tool's one sanctioned credential write. 0600 + atomic rename are the controls (Landmine 9). |
+| G304 | 7 | `config.go:56`, `pi.go:94`, `cline.go:78`, `hermes.go:143/157`, `openclaw.go:173`, `droid.go:137` | Every one reads a fixed, well-known path under the invoking user's own `$HOME` (or our own config path). No caller-supplied path component exists. |
+| G703 | 2 | `hermes.go:65`, `qwen.go:68` | `os.Stat` on `findPath` candidates built from `$HOME`/`$APPDATA`/`$LOCALAPPDATA`. The "taint" is the user's own environment. |
+| G204 | 2 | `exec_unix.go:15`, `exec_wait.go:21` | Spawning the agent the user chose with the args they passed **is the product**. The real control here is `ExecArgs`' env dedup (Landmine 3). |
+
+Two of these are actively dangerous to "resolve": silencing G117 would mean
+not storing the user's key, and silencing G204 would mean not launching an
+agent. `#nosec` was rejected as the mechanism because the tree has none
+today, and blanket suppression comments would blunt *future* findings at
+exactly the sites — the exec path and the credential write — that most
+deserve a second look. If a new alert appears at one of these sites, read
+it; do not assume it belongs to this list.
 
 ## Phase 2 — complete
 

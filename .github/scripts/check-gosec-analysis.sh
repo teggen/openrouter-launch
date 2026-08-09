@@ -2,7 +2,7 @@
 # Fail when gosec produced a report without actually analysing the tree.
 #
 # WHY THIS EXISTS. `gosec -no-fail` exits 0 unconditionally — that is the
-# point of the flag, and it is what keeps this repo's ~19 genuine findings
+# point of the flag, and it is what keeps this repo's 14 remaining findings
 # advisory instead of blocking. But it also swallows the case where gosec
 # never analysed anything. Measured on a deliberately broken package:
 #
