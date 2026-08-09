@@ -46,7 +46,7 @@ openrouter-launch claude -m anthropic/claude-opus-4.6 -- --resume
 openrouter-launch profile add --name opus-cc --agent claude --model anthropic/claude-opus-4.6
 openrouter-launch profile list|launch|rm|rename
 openrouter-launch codex -m openai/gpt-4o-mini -- exec --skip-git-repo-check "…"
-openrouter-launch opencode -m openai/gpt-4o-mini -- run "…"
+openrouter-launch opencode -m openai/gpt-4o-mini -- run "…"  # exit code caveat — see Open items
 ```
 
 Two more commands open interactive bubbletea screens and are **not** covered
@@ -382,6 +382,20 @@ agent" is accepted behavior, not a gap to fill.
   built binary. Nobody has yet sat at `openrouter-launch codex` or
   `openrouter-launch opencode` with no passthrough args and driven the
   agent's own interactive session end to end.
+- **`opencode run`'s exit code cannot be trusted once its models.json cache
+  is populated — this is opencode's own bug, not ours.** On opencode
+  1.0.69, `openrouter-launch opencode -m <slug> -- run "…"` prints the
+  completion correctly and then exits 1 with `Error: [DecimalError] Invalid
+  argument: [object Object]`, once `~/.cache/opencode/models.json` (its own
+  model/pricing catalog, downloaded on first use) has been populated —
+  a clean first run before that cache exists exits 0. Reproduced both
+  through our binary and with a raw `opencode run` invocation with none of
+  this project's code involved at all; evidence at
+  `.superpowers/sdd/2026-08-08-phase-3-agents/live-opencode-raw-repro.log`
+  and documented in the Phase 3 design doc's live-verification section. Any
+  script that gates on `openrouter-launch opencode`'s exit code should know
+  a `0` completion can still surface as `1` — this is not a regression to
+  chase in this repo, and it stays open until opencode fixes it upstream.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
