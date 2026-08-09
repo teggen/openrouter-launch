@@ -264,7 +264,9 @@ config.yaml"); CLI args outrank all config files. Slug verbatim (plus hermes-sid
 passthrough: `--provider`, `--model`; reject a passthrough that *begins with another
 hermes subcommand* (our managed flags are chat-scoped — clearer to refuse than to
 misapply them). **`Compatible`**: hermes rejects models with <64K context at startup, so
-`CheckModel` warns (advisory, Landmine 7) when `Model` context < 65536. Install:
+`CheckModel` warns (advisory, Landmine 7) when `Model` context < 64000 (decimal —
+corrected by live verification on 2026-08-09 from an initial 65536 assumption; see the
+live-verification results below for detail). Install:
 `LookPath("hermes")`, then `~/.local/bin/hermes`, Windows `%LOCALAPPDATA%\hermes`; hint
 `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash`. Shadow detector:
 `~/.hermes/.env` / `auth.json` per table.
