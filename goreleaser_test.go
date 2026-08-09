@@ -4,8 +4,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -38,33 +38,54 @@ func TestGoreleaserLdflagsMatchVersionSymbols(t *testing.T) {
 // versionVarsDeclared returns the package-level var names in internal/version,
 // skipping _test.go files so a variable declared only in a test cannot make
 // this assertion pass.
+//
+// This walks the directory itself rather than calling parser.ParseDir, which
+// Go 1.25 deprecated (it ignores build tags when grouping files into
+// packages). The replacement keeps the two properties this test depends on —
+// non-test .go files only, package-level vars only — and adds no dependency;
+// the suggested alternative, golang.org/x/tools/go/packages, would.
 func versionVarsDeclared(t *testing.T) map[string]bool {
 	t.Helper()
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, "internal/version",
-		func(fi fs.FileInfo) bool { return !strings.HasSuffix(fi.Name(), "_test.go") }, 0)
+	const dir = "internal/version"
+	entries, err := os.ReadDir(dir)
 	if err != nil {
-		t.Fatalf("parsing internal/version: %v", err)
+		t.Fatalf("reading %s: %v", dir, err)
 	}
+
+	fset := token.NewFileSet()
 	found := map[string]bool{}
-	for _, pkg := range pkgs {
-		for _, file := range pkg.Files {
-			for _, decl := range file.Decls {
-				gen, ok := decl.(*ast.GenDecl)
-				if !ok || gen.Tok != token.VAR {
+	parsed := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		file, err := parser.ParseFile(fset, filepath.Join(dir, name), nil, 0)
+		if err != nil {
+			t.Fatalf("parsing %s: %v", name, err)
+		}
+		parsed++
+		for _, decl := range file.Decls {
+			gen, ok := decl.(*ast.GenDecl)
+			if !ok || gen.Tok != token.VAR {
+				continue
+			}
+			for _, spec := range gen.Specs {
+				vs, ok := spec.(*ast.ValueSpec)
+				if !ok {
 					continue
 				}
-				for _, spec := range gen.Specs {
-					vs, ok := spec.(*ast.ValueSpec)
-					if !ok {
-						continue
-					}
-					for _, n := range vs.Names {
-						found[n.Name] = true
-					}
+				for _, n := range vs.Names {
+					found[n.Name] = true
 				}
 			}
 		}
+	}
+
+	// Distinguishes "the package moved or was renamed" from "a variable was
+	// renamed" — both break the ldflags, but they are different diagnoses.
+	if parsed == 0 {
+		t.Fatalf("parsed no non-test .go files in %s — the ldflag target is gone", dir)
 	}
 	return found
 }
