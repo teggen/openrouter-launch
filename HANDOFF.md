@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-09 · **State:** Phase 4a complete — six zero-touch Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp); pi/hermes/cline live-verified, qwen/kimi/omp doc-verified-only
+**Last updated:** 2026-08-09 · **State:** Phase 4 complete (4a + 4b) — all eight Tier 2 launchers shipped (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five (qwen, kimi, omp, openclaw, droid) doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
 
 Read this first if you are picking the project up with no prior context.
 
@@ -32,10 +32,11 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
-| Tests | 411 total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched this phase); the Phase 4a agents and their shared helpers account for the growth from 372 |
-| Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean, Linux/macOS/Windows cross-build |
-| Agents shipped | claude, codex, opencode, pi, hermes, qwen, cline, kimi, omp; 3 desktop apps registered unsupported |
-| Pushed | Yes — `origin/main` is current as of Phase 4a (Task 10 push). It had been 47 commits behind for the whole planner refactor and TUI build, and separately ahead by 14 commits through the Phase 4a build before this push; a revision of this file has twice now wrongly claimed to be current when it wasn't. Check `git status -sb` rather than trusting this row. |
+| Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
+| Tests | 432 total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched in 4a or 4b); the growth from 411 (Phase 4a's count) is Phase 4b's `Staged`/openclaw/fork-and-wait/droid work |
+| Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean (including `internal/tui`), Windows/macOS cross-build clean, all confirmed 2026-08-09 (Task 6); the `HOME`-isolated machine-independence run (Landmine 8) also green |
+| Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
+| Pushed | Yes — `origin/main` is current as of Phase 4b (Task 6 push). Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
 
 Working commands, all smoke-tested against the live API:
 
@@ -59,6 +60,14 @@ openrouter-launch cline -m openai/gpt-4o-mini -- "…"       # live-verified, Ta
 openrouter-launch qwen -m openai/gpt-4o-mini -- -p "…"     # doc-verified only — gate skipped (owner scope)
 openrouter-launch kimi -m moonshotai/kimi-k3               # doc-verified only — gate skipped (owner scope)
 openrouter-launch omp -m openai/gpt-4o-mini -- -p "…"      # doc-verified only — gate skipped (owner scope)
+
+# Phase 4b — the remaining two Tier 2 agents. Neither was installed this
+# phase (Task 5 skipped by owner decision) — forms below are inferred from
+# Command()/Apply(), not smoke-tested through the built binary.
+openrouter-launch openclaw -m openai/gpt-4o-mini                        # doc-verified only — tui --local, staged config (write site #3)
+openrouter-launch openclaw -m openai/gpt-4o-mini -- agent exec "…"      # doc-verified only — one-shot, --model/--auth-env-only appended automatically, no staged file
+openrouter-launch droid -m openai/gpt-4o-mini                           # doc-verified only — ConfigWriter, fork-and-wait, interactive
+openrouter-launch droid -m openai/gpt-4o-mini -- exec "…"               # doc-verified only — ConfigWriter, fork-and-wait, headless
 ```
 
 Two more commands open interactive bubbletea screens and are **not** covered
@@ -99,7 +108,7 @@ docs/superpowers/plans/2026-08-08-phase-2-tui.md                         the pla
 docs/superpowers/plans/2026-08-08-phase-3-agents.md                      the plan that built Phase 3 (its wire_api="chat" is the frozen pre-verification value; the spec records the correction)
 docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md        spec for pi/hermes/qwen/cline/kimi/omp/openclaw/droid, live-verification results appended
 docs/superpowers/plans/2026-08-09-phase-4a-tier-2-zero-touch.md          the plan that built Phase 4a (this phase)
-docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md  the plan for Plan 4b — openclaw + droid, next
+docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md  the plan that built Phase 4b — Staged, openclaw, fork-and-wait, droid; complete
 CLAUDE.md                                                                quick operational layer for Claude Code sessions; points here
 .superpowers/sdd/progress.md                                             Phases 1-2 build ledger (gitignored)
 .superpowers/sdd/*-report.md                                             Phases 1-2 per-task reports (gitignored)
@@ -107,6 +116,7 @@ CLAUDE.md                                                                quick o
 .superpowers/sdd/2026-08-09-tier-2-research/                             per-agent doc-verification notes (pi.md, hermes.md, qwen.md, cline.md, kimi.md, omp.md, openclaw.md, droid.md, findings.md) written before any Phase 4 code
 .superpowers/sdd/2026-08-09-phase-4a-tier-2-zero-touch/                  Phase 4a workspace: ledger (progress.md), task briefs/reports, whole-branch review diffs
 .superpowers/sdd/2026-08-09-phase-4a/                                    Task 9's live-gate evidence: live-{pi,hermes,cline}-*.log (12 files)
+.superpowers/sdd/2026-08-09-phase-4b-configwriter-openclaw-droid/        Phase 4b workspace: ledger (progress.md), task briefs/reports, whole-branch review diffs per task, Task 6's verification report
 
 main.go                      entry point + exit-code extraction
 internal/openrouter/         model type, HTTP catalog client, disk cache, filters
@@ -141,12 +151,23 @@ Purity is load-bearing: it makes every agent testable by comparing a struct, wit
 no process ever spawned in a test. Do not introduce a side effect into it.
 
 Everything else is opt-in, detected by type assertion: `Installable`,
-`Installer`, `Compatible`, `PlatformSupported`, `ConfigWriter`.
+`Installer`, `Compatible`, `PlatformSupported`, `CredentialShadowCheck`,
+`Staged`, `ConfigWriter`.
 
 `ConfigWriter` is the **escape hatch** for an agent with no zero-touch
-configuration path. `droid` implements it. When an agent implements it, that
-agent takes a fork-and-wait launch path instead of `syscall.Exec`, so its
-`restore` can run.
+configuration path. `droid` implements it, as of Phase 4b. When an agent
+implements it, that agent takes a fork-and-wait launch path instead of
+`syscall.Exec`, so its `restore` can run (Landmine 24).
+
+`Staged` is the escape hatch for an agent whose model selection needs a
+*file* but never needs to touch the agent's own config: `StagedFiles(Request)
+([]StagedFile, error)`, pure like `Command`, declares launcher-owned files
+that `launch.Service.Launch` materializes under our own config dir.
+`openclaw` implements it, as of Phase 4b. `Staged` and `ConfigWriter` look
+similar but are a deliberate two-capability split, not a spectrum: `Staged`
+writes OUR files (idempotent overwrite, no undo needed, `syscall.Exec`
+handoff unaffected); `ConfigWriter` writes the AGENT'S file (backup and
+restore required, forces fork-and-wait). Do not merge them.
 
 **`Cache` deliberately does NOT implement `Catalog`.** `Catalog` is the narrow,
 swappable source abstraction (an official SDK could implement it later);
@@ -187,14 +208,29 @@ invert the order — it used to live in `resolveAndRun`, which is why the two
 are no longer allowed to drift apart. On Unix `agent.Run` uses `syscall.Exec`
 and replaces the process — nothing after it executes.
 
-**6. Zero-touch is absolute.** Launcher-owned writes only: three write sites are
-`$XDG_CACHE_HOME/openrouter-launch/models.json`,
-`$XDG_CONFIG_HOME/openrouter-launch/config.json`, and staged files under the
-config dir via `stageFiles` in `internal/launch/handoff.go`. One capability-gated
-agent-owned exception: `droid` implements `ConfigWriter` to upsert a single
-marker-owned entry into `~/.factory/settings.local.json` (fork-and-wait launch
-path, restore on exit). Verified by exhaustive grep, not assertion. Any code
-writing into an agent's own config outside `ConfigWriter` is a Critical defect.
+**6. Zero-touch is absolute — amended twice (Phase 4b Tasks 1 and 4) to its
+final four-site form.** The original invariant was "exactly two write
+sites, both launcher-owned." The principle was always "never write an
+**agent's** files"; Phase 4b made the launcher-owned side explicit and
+added the one sanctioned agent-owned exception. This table matches the
+Phase 4 spec's (`docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md`)
+verbatim:
+
+| # | Path | Owner | Written by | Secret? |
+|---|---|---|---|---|
+| 1 | `$XDG_CACHE_HOME/openrouter-launch/models.json` | launcher | `openrouter.Cache` | no |
+| 2 | `$XDG_CONFIG_HOME/openrouter-launch/config.json` | launcher | `internal/config` | yes (0600) |
+| 3 | `$XDG_CONFIG_HOME/openrouter-launch/openclaw.json` | launcher | `Staged` materializer in `launch.Service.Launch` (`stageFiles`) | **no** (model ref only; key stays in env) |
+| 4 | `~/.factory/settings.local.json` | **agent (droid)** | `ConfigWriter.Apply`, capability-gated, marker-owned entries only, restore on exit | **no** (`"apiKey": "${OPENROUTER_API_KEY}"` interpolation) |
+
+Rules that survive unchanged: no other writes anywhere in the tree,
+verified by exhaustive grep, not assertion (see "Verify the tree is
+sound"); the API key is never written outside site 2; `Command()` stays
+pure — sites 3 and 4 are materialized by the launch service or `Apply`,
+never by a launcher's `Command` method. Any code writing into an agent's
+own config outside `ConfigWriter`, or any write anywhere in `internal/agent`
+outside `droid.go`'s `Apply`/`restore`/`writeDroidSettingsFile`, is a
+Critical defect.
 
 **7. `CheckModel` incompatibility is advisory.** Warn and confirm; never abort.
 Claude Code with a non-`anthropic/*` model works for many models; OpenRouter only
@@ -402,6 +438,58 @@ and FAIL under the other's, not just assert its own success:
 3 mutation 1, Task 8 mutation 1). If you add another agent, doc-verify
 which dialect it speaks before writing `Command` — don't assume either one.
 
+**22. `OPENCLAW_CONFIG_PATH` replaces the user's whole OpenClaw config for
+the session — deliberate, owner-approved; do not "fix" it by merging.**
+`openclaw`'s `tui --local` has no `--model` flag and no model-selection env
+var (see `internal/agent/openclaw.go`'s type comment) — the only way to
+point it at a model is a config file, and openclaw reads *one* config path.
+`Command` sets `OPENCLAW_CONFIG_PATH` to a launcher-owned file under our own
+config dir (write site #3, `Staged`-materialized, holding only
+`agents.defaults.model.{primary,models}`), which means the user's
+`~/.openclaw/openclaw.json` — channels, plugins, everything else — does not
+load for a launched session. This was weighed and accepted at spec review:
+merging the two configs would mean parsing and rewriting a config format we
+do not own, which is exactly the write-into-an-agent's-own-config move
+Landmine 6 forbids. If you are tempted to "fix" the whole-config-replacement
+as a UX gap, don't — it is a deliberate scope boundary, not an oversight.
+
+**23. droid's model selection stays in `~/.factory/settings.local.json`,
+never a `-m custom:<id>` argv flag.** Two independent reasons, not one: (a)
+purity — the `custom:<displayName>-<index>` ID (droid's own selection
+syntax) is only knowable after `Apply` has computed the entry's index, and
+`Command` (which builds argv) MUST stay pure per the `Launcher` interface's
+contract, so it cannot compute or receive that index; (b) a public report
+(Factory-AI/factory#787, cited in
+`.superpowers/sdd/2026-08-09-tier-2-research/droid.md`) describes `droid
+exec --model custom:…` rejecting valid custom IDs outright on some version
+— the `-m` path is upstream-flaky even where it exists. `internal/agent/droid.go`'s
+`Apply` instead upserts `settings["model"]` directly so droid's own
+default-model resolution picks the entry without any flag involved, and
+`Command` passes only `req.ExtraArgs` through unchanged. Do not add a `-m
+custom:…` flag to `Command`'s argv to "make it more explicit" — it
+reintroduces both the purity violation and exposure to the upstream bug,
+and this path was never live-verified against 0.190.0 (Task 5 skipped; see
+Open items).
+
+**24. A `ConfigWriter` agent (currently only droid) never takes the
+`syscall.Exec` handoff — it goes through fork-and-wait so `restore` can
+run.** `launch.Service.Launch` (`internal/launch/handoff.go`) type-asserts
+`p.Spec.Launcher` against `agent.ConfigWriter`; if it satisfies the
+interface, `launchConfigWriter` runs instead of `s.run`: `Apply` writes the
+agent's config, `s.runWait` spawns the agent as a waited-on child
+(`internal/agent/exec_wait.go`, `os/exec`, inherited stdio, SIGINT/SIGTERM
+forwarded to the child), then `restore()` always runs afterward — including
+after the child exits nonzero — and the run error survives a restore
+failure via `errors.Join`, so `main.go`'s exit-code extraction still sees
+the original `*exec.ExitError`. `Staged` (openclaw) and `ConfigWriter`
+(droid) are a deliberate two-capability split for exactly this reason:
+`Staged` writes launcher-owned files with no undo needed, so `syscall.Exec`
+stays fine; `ConfigWriter` writes into the agent's *own* file and therefore
+needs the undo, which requires the process to still be alive afterward. Do
+not merge the two capabilities or route `Staged` launches through
+fork-and-wait "for consistency" — that would cost every zero-touch agent
+the clean process replacement Landmine 5 relies on, for no benefit.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
@@ -492,12 +580,78 @@ registered with a stated reason. **Owner decision:** `copilot`, `pool`, and
 **not** registered; `openrouter-launch copilot` (etc.) reporting "unknown
 agent" is accepted behavior, not a gap to fill.
 
-**Next: Plan 4b** (`docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md`)
-adds `openclaw` (a `Staged`-launch variant sharing omp's `openrouter/`-prefix
-slug dialect, Landmine 21) and `droid` (the first agent to implement
-`ConfigWriter`, taking the fork-and-wait launch path instead of
-`syscall.Exec` so its `restore` can run afterward — see "Architecture in one
-page" above for why that escape hatch exists and has sat unused until now).
+**Followed by Plan 4b** (`docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md`),
+which shipped `openclaw` and `droid` and closed Tier 2 out entirely — see
+"Phase 4b — ConfigWriter, openclaw, droid, complete" below.
+
+## Phase 4b — ConfigWriter, openclaw, droid, complete
+
+Four coding tasks, in dependency order (`Staged` before `ConfigWriter` —
+smaller step first, and the write-site grep evolves twice in sequence
+rather than once in a lump), then Task 5 (live gates, skipped by owner
+decision) and Task 6 (this verification + handoff pass).
+
+**`Staged`** (`internal/agent/agent.go`) is the third write-site capability:
+`StagedFiles(Request) ([]StagedFile, error)`, pure like `Command`, declaring
+launcher-owned files materialized by `launch.Service.Launch` (`stageFiles`
+in `internal/launch/handoff.go`) after `recordSelection` and before
+handoff — the same single side-effect site Landmine 5 already required.
+`stageFiles` enforces the path boundary itself (`filepath.Rel` against
+`config.Dir()`, rejecting anything that resolves outside it) rather than
+trusting callers — a path-prefix bug here would be a write-anywhere
+primitive, which is why its tests pin both a straightforward escape and a
+naive-`HasPrefix` sibling-path regression (commits `3cdb9fb..a7a8ce1`).
+
+**`openclaw`** (`internal/agent/openclaw.go`) is the first and only
+consumer of `Staged` so far: `tui --local` has no `--model` flag, so its
+model selection is a staged config file at
+`$XDG_CONFIG_HOME/openrouter-launch/openclaw.json` holding only
+`agents.defaults.model.{primary,models}`, pointed to via
+`OPENCLAW_CONFIG_PATH` (Landmine 22). One-shot `agent exec` passthrough
+skips staging entirely — `--model` and `--auth-env-only` are appended by
+`Command` and compose config in memory, openclaw's own documented
+zero-touch path. Model refs are `openrouter/`-prefixed and **lowercased**
+(`openclawModelRef`) — openclaw normalizes refs to lowercase, sharing omp's
+dialect (Landmine 21) with an extra wrinkle. `findPath` falls back to the
+pre-rename `clawdbot` binary name. `ShadowedCredential` detects a stored
+OpenRouter auth profile under
+`~/.openclaw/agents/*/agent/auth-profiles.json` (precedence against the env
+key is undocumented — see Open items).
+
+**Fork-and-wait** (`internal/agent/exec_wait.go`'s `RunWait`; wired into
+`internal/launch/handoff.go`'s `launchConfigWriter`) is the launch path any
+`ConfigWriter` agent takes instead of `syscall.Exec` — see Landmine 24 for
+the mechanism and why it must never merge with `Staged`'s `syscall.Exec`
+path.
+
+**`droid`** (`internal/agent/droid.go`) is the first real `ConfigWriter`
+implementation — Factory's only OpenRouter declaration surface is a
+settings file; no env var or flag defines a custom model. `Apply` upserts
+one marker-owned (`displayName: "openrouter-launch"`) `customModels` entry
+into `~/.factory/settings.local.json` (write site #4; the merge-friendly
+local layer, never `settings.json`) with `apiKey: "${OPENROUTER_API_KEY}"`
+env interpolation so the key never touches disk, and points the top-level
+`model` key at it — all via atomic temp-file-then-rename writes (Landmine
+9's shape). `restore` puts both back, preserving any foreign (non-marker)
+`customModels` entries untouched, and removes the file entirely if it
+created it. Model selection lives in the file, never `-m custom:<id>` on
+argv (Landmine 23).
+
+**Task 5's live gates were skipped by owner decision (2026-08-09).**
+openclaw and droid both ship doc-verified-only, joining 4a's qwen/kimi/omp
+in that posture — five of the eight Tier 2 agents are now doc-verified-only,
+three live-verified (pi, hermes, cline). See Open items for exactly what
+each skipped gate leaves unconfirmed; droid's routing proof in particular
+is flagged must-do-before-real-use, not a routine open item.
+
+**Tier 2 is now COMPLETE — all eight agents shipped**: pi, hermes, qwen,
+cline, kimi, omp, openclaw, droid. What remains is not a new phase: the
+five skipped live gates above, human interactive smoke tests across all
+eight Tier 2 agents (plus codex, opencode, and the root TUI itself, already
+listed as human-unverified in Open items from Phase 2/3), and the standing
+open items below. Tier 3 (desktop apps that cannot be pointed at
+OpenRouter) is already registered with stated reasons as of Phase 4a —
+there is no further Tier 3 work, and no Tier 4 exists to plan toward.
 
 ## Open items
 
@@ -565,13 +719,55 @@ page" above for why that escape hatch exists and has sat unused until now).
   from this tool. `qwen` has the same gap (see above), on the same Task 5
   ruling. Revisit if either agent ever exposes its credential state as
   JSON or plain text.
-- **Six new agents' interactive TUIs have not been driven by a human.** pi,
-  hermes, qwen, cline, kimi, and omp were only ever exercised through their
-  own headless/one-shot flags — three of them live (pi, hermes, cline,
-  Task 9), three doc-verified-only (qwen, kimi, omp, per above). Nobody has
-  sat at `openrouter-launch pi` (etc.) with no passthrough args and driven
-  the agent's own interactive session end to end — the same gap Phase 3
-  left open for codex/opencode, now six agents wider.
+- **All eight Tier 2 agents' interactive sessions have not been driven by a
+  human.** pi, hermes, qwen, cline, kimi, and omp were only ever exercised
+  through their own headless/one-shot flags — three of them live (pi,
+  hermes, cline, Task 9), three doc-verified-only (qwen, kimi, omp, per
+  above). **openclaw and droid are two more, unexercised the same way** —
+  droid's fork-and-wait interactive session and openclaw's `tui --local`
+  have never been run against a real installed binary (Task 5 skipped, see
+  below). Nobody has sat at `openrouter-launch pi` (etc.) with no
+  passthrough args and driven the agent's own interactive session end to
+  end — the same gap Phase 3 left open for codex/opencode, now eight agents
+  wider. The owner drives these smoke tests after Task 6 (Plan 4b's
+  execution notes name this explicitly).
+- **Task 5's live gates for openclaw and droid were skipped by owner
+  decision (2026-08-09) — both ship doc-verified-only, same posture as
+  4a's qwen/kimi/omp.** Everything Task 5 would have confirmed is now open:
+  - **openclaw** — whether `agent exec` and `--auth-env-only` exist and
+    behave as documented on an installed version (recent surface, not to be
+    pinned from memory per the caution that caught Landmine 18); virgin-
+    state `tui --local` first-run behavior (does a fresh `OPENCLAW_STATE_DIR`
+    with no prior onboarding run cleanly, per docs' "safe defaults" claim,
+    or does it hit a first-run gate the way ollama's own port assumed?);
+    and auth-profile-vs-env precedence for `tui --local`
+    (`ShadowedCredential` only detects that a stored profile *exists* —
+    which one actually wins was never tested against a real session, e.g.
+    via `/model status`).
+  - **droid** — which default-model key the installed version actually
+    honors: current docs describe a top-level `model` key (what `Apply`
+    writes), but ollama's own port wrote `sessionDefaultSettings.model`,
+    and both forms have been observed in the wild (see
+    `.superpowers/sdd/2026-08-09-tier-2-research/droid.md`); whether
+    `${OPENROUTER_API_KEY}` interpolation actually resolves in
+    `settings.local.json` on a real droid; whether `restore` reproduces the
+    pre-`Apply` file byte-for-byte on a real (not synthetic) settings file;
+    and, most importantly, **THE ROUTING PROOF**: a launch with a
+    deliberately bogus OpenRouter key MUST fail with an OpenRouter auth
+    error. This was the spec's own demotion gate for droid (`ConfigWriter`
+    vs. unsupported-with-reason) and it has never been run. A completion
+    that succeeds anyway means droid silently fell back to a
+    Factory-billed model instead of routing through OpenRouter — the
+    silent-billing failure mode the spec's research flagged
+    (Factory-AI/factory#1061). **Flag this as must-do-before-any real droid
+    use** — it is not a routine open item, it is the one check that tells
+    you whether droid is wired correctly at all.
+- **The fork-and-wait SIGINT/SIGTERM path has no automated test.**
+  `internal/agent/exec_wait.go`'s `RunWait` forwards `os.Interrupt` and
+  `syscall.SIGTERM` to the child (Landmine 24), but no test drives an
+  actual signal through it — the same class of honest gap as the TUI's
+  `WithoutSignalHandler` caveat in Landmine 16. Both are documented, not
+  hidden, and both would need a real subprocess/pty to close properly.
 - **Deferred Minor findings live in the ledgers**, per phase, each with a reason:
   Phase 1 deferred 10 of 17 and fixed 7; the TUI phase carried 16 into its
   whole-branch review, which fixed 8, deferred 4, and dropped 4 as already
@@ -582,7 +778,13 @@ page" above for why that escape hatch exists and has sat unused until now).
   two extra conflict-override spellings codex validation misses
   (`-c=key=val`, bare `model_providers` table assignment) and the
   model-flag matcher now duplicated across codex/opencode (extract on third
-  use). The four still open from the TUI phase are named in
+  use). Phase 4b's ledger
+  (`.superpowers/sdd/2026-08-09-phase-4b-configwriter-openclaw-droid/progress.md`)
+  records 10 more Minors deferred across its four coding tasks (path-boundary
+  hardening notes, an `agent.go` doc comment now stale since droid implements
+  `ConfigWriter`, a mode-normalization side effect in `writeDroidSettingsFile`,
+  among others) — none blocked merge; see the ledger for the full list and
+  reasons. The four still open from the TUI phase are named in
   `.superpowers/sdd/progress.md`: a picker clamp test that measures the cursor
   reset rather than the clamp (the property is structurally guaranteed — the
   fix is a rename), `isTTY`'s real body never being invoked by any test, the
@@ -655,20 +857,28 @@ fully green — `claude`, `pi`, `hermes`, and (since Task 9) `cline` are all
 really installed on this machine (see Landmine 8), and a test that forgot
 to isolate `HOME` passes here and fails everywhere else.
 
-**Write-site verification** (Landmine 6): the three launcher-owned write sites
-are `models.json` (cache), `config.json` (config), and staged files written in
-`stageFiles` (`internal/launch/handoff.go`). Exhaustive grep to verify nothing
-else writes into the tree:
+**Write-site verification** (Landmine 6, four sites — see the table above):
+grep for every write primitive, `CreateTemp` included. This is the exact
+form that matters: a pattern using bare `Create` does **not** catch
+`os.CreateTemp(...)` (the atomic-write shape `config.Save` and
+`writeDroidSettingsFile` both use, since `Create` requires `Create(`
+immediately and `CreateTemp(` never matches that) — an earlier revision of
+this check used exactly that narrower pattern and would have silently
+missed both.
 
 ```bash
-grep -rE '(WriteFile|MkdirAll|Create|OpenFile|Truncate)\s*\(' \
-  internal/ | grep -v '_test\.go' | grep -v '\.go:.*\/\/'
+grep -rn "os.WriteFile\|os.Create\|os.MkdirAll\|os.Rename\|OpenFile\|CreateTemp" \
+  --include="*.go" . | grep -v _test
 ```
 
-Expected output: only `config.Save` (config.json), `openrouter.Snapshot` with
-cached models, `stageFiles` (staged files under config dir), and `droid.go`
-(`~/.factory/settings.local.json` via ConfigWriter). Any other write is a
-Critical defect per Landmine 6.
+Expected hits, exhaustively: `internal/openrouter` (`cache.go`, writing
+`models.json`), `internal/config` (`config.go`, writing `config.json`),
+`internal/launch/handoff.go` (`stageFiles`, staged files under our config
+dir), and `internal/agent/droid.go` (`Apply`/`restore`/
+`writeDroidSettingsFile`, writing `~/.factory/settings.local.json`). Any
+other file — any other hit inside `internal/agent` in particular — is a
+Critical defect per Landmine 6. Confirmed exhaustive against exactly these
+four files, 2026-08-09 (Task 6).
 
 The last two hit the live OpenRouter API. Bare `models` should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
