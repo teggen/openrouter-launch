@@ -143,9 +143,10 @@ no process ever spawned in a test. Do not introduce a side effect into it.
 Everything else is opt-in, detected by type assertion: `Installable`,
 `Installer`, `Compatible`, `PlatformSupported`, `ConfigWriter`.
 
-`ConfigWriter` is the **escape hatch** for a future agent with no zero-touch
-configuration path. No agent implements it. When one does, that agent takes a
-fork-and-wait launch path instead of `syscall.Exec`, so its `restore` can run.
+`ConfigWriter` is the **escape hatch** for an agent with no zero-touch
+configuration path. `droid` implements it. When an agent implements it, that
+agent takes a fork-and-wait launch path instead of `syscall.Exec`, so its
+`restore` can run.
 
 **`Cache` deliberately does NOT implement `Catalog`.** `Catalog` is the narrow,
 swappable source abstraction (an official SDK could implement it later);
@@ -189,10 +190,11 @@ and replaces the process — nothing after it executes.
 **6. Zero-touch is absolute.** Launcher-owned writes only: three write sites are
 `$XDG_CACHE_HOME/openrouter-launch/models.json`,
 `$XDG_CONFIG_HOME/openrouter-launch/config.json`, and staged files under the
-config dir via `stageFiles` in `internal/launch/handoff.go`. Agent-owned writes
-forbidden outside `ConfigWriter` (arriving Phase 4b Task 3/4). Verified by
-exhaustive grep, not assertion. Any code writing into an agent's own config is a
-Critical defect.
+config dir via `stageFiles` in `internal/launch/handoff.go`. One capability-gated
+agent-owned exception: `droid` implements `ConfigWriter` to upsert a single
+marker-owned entry into `~/.factory/settings.local.json` (fork-and-wait launch
+path, restore on exit). Verified by exhaustive grep, not assertion. Any code
+writing into an agent's own config outside `ConfigWriter` is a Critical defect.
 
 **7. `CheckModel` incompatibility is advisory.** Warn and confirm; never abort.
 Claude Code with a non-`anthropic/*` model works for many models; OpenRouter only
@@ -664,8 +666,9 @@ grep -rE '(WriteFile|MkdirAll|Create|OpenFile|Truncate)\s*\(' \
 ```
 
 Expected output: only `config.Save` (config.json), `openrouter.Snapshot` with
-cached models, and `stageFiles` (staged files under config dir). Any other
-write is a Critical defect per Landmine 6.
+cached models, `stageFiles` (staged files under config dir), and `droid.go`
+(`~/.factory/settings.local.json` via ConfigWriter). Any other write is a
+Critical defect per Landmine 6.
 
 The last two hit the live OpenRouter API. Bare `models` should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
