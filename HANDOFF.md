@@ -33,10 +33,10 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | 432 total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched in 4a or 4b); the growth from 411 (Phase 4a's count) is Phase 4b's `Staged`/openclaw/fork-and-wait/droid work |
-| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. |
+| Tests | **446** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 10 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began. |
+| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
-| CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows/macOS advisory), machine-independence; all branches |
+| CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release) and `v0.1.0` (Latest)**, both 2026-08-09, six archives + `checksums.txt` each |
 | Go floor | `go 1.25` — a **security** floor, not a dependency floor (Landmine 25, third clause). Minor-only on purpose so `setup-go` resolves the newest patch; it resolved `go1.25.12` on the first run. |
 | Pushed | Yes — `origin/main` and `origin/develop` are both at the `v0.1.0` commit. Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
@@ -576,6 +576,35 @@ with machine-independence. `make test-isolated` uses `dirname $(command -v
 go)` and keeps the rest of the stripping intact — the point is hiding
 `~/.local/bin`, not hiding the toolchain.
 
+**28. `gosec` exiting 0 is not evidence that gosec ran.** `-no-fail` is what
+keeps this repo's ~19 findings advisory, and it also swallows the case where
+the analysis never happened. Measured on a deliberately broken package, then
+on this real tree with one type error added to `internal/launch/plan.go`:
+
+```
+[gosec] Error building the SSA representation of the package launch:
+        package launch has type errors, skipping SSA analysis, no ssa result
+exit 0 — SARIF written — still 19 results
+```
+
+Four packages' SSA analysis silently did not run, the SARIF looked *identical*
+in size and result count, and every downstream control in `ci.yml`'s audit
+job was satisfied — including `if-no-files-found: error`, which only ever
+asked whether a file exists. Two guards close this and neither is optional:
+
+- `.github/scripts/check-gosec-analysis.sh`, run as its own audit step,
+  greps the teed gosec log for the failed-analysis signature and for at
+  least one `Checking file:` line. It deliberately **never** looks at the
+  SARIF's result count — keying on "no results" would make a genuinely clean
+  tree impossible to achieve *and* would still miss the case above, where the
+  result count did not move. `gosecguard_test.go` pins both directions; four
+  mutations of the script each fail a complementary set of subtests.
+- `make security`'s `test -x $(GOBIN)/gosec` guard. The `-` prefix on that
+  recipe line tells make to ignore the exit status, which is what keeps
+  findings advisory — but it ignored `Error 127 (ignored)` just as happily,
+  so with gosec uninstalled `make security` exited **0** having run no gosec
+  at all. gosec was the only tool there without the guard its siblings have.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
@@ -779,11 +808,27 @@ cut. Stable tags on `main`, `-beta.N` on `develop`; the guard enforces it by
   `using tags previous=<unknown> current=v0.1.0`. If you ever remove that env
   var, this is what breaks, and it breaks silently.
 
-**The advisory OS legs**: `test (macos-latest)` and `test (windows-latest)` are
+**The advisory OS leg**: `test (windows-latest)` alone is now
 `continue-on-error`. Confirmed on a real run: a red Windows leg leaves the
 overall run **green** (`conclusion: success`) while the job itself still shows
 as failed — so the signal is visible without blocking. See Open items for what
-Windows actually reported.
+Windows actually reported. `test (macos-latest)` shipped advisory too and had
+its flag removed in the final fix wave: it has been green on every run since
+the first, and the plan's definition of done was "the escape hatch comes off
+per-OS once that OS passes". A macOS regression is now blocking.
+
+**The final fix wave** (after the whole-branch review, on `develop`, no
+re-release — both published artifacts were verified correct and neither is
+affected) closed the last member of this phase's recurring failure class,
+"a control that can go green having checked nothing": see Landmine 28 for
+the gosec pair. It also made `.goreleaser.yaml` validated *before* a tag can
+publish (`goreleaser check` in `release.yml`'s `verify` job — previously
+nothing validated it until after the beta had shipped and `main` had been
+fast-forwarded), added `lint-workflows` to `make ci` (actionlint was pinned
+and installed but ran nowhere, while Dependabot edits workflow YAML weekly),
+keyed `ci.yml`'s concurrency group on the PR head ref so same-repo PRs stop
+running the matrix twice, and corrected the documentation findings recorded
+under the individual items above.
 
 ## Open items
 
@@ -842,9 +887,9 @@ Windows actually reported.
     is unassertable there as currently written.
 
   Closing this means giving those tests platform-aware fixtures, not changing
-  the launchers. Until then `test (windows-latest)` stays `continue-on-error`;
-  `test (macos-latest)` is now a candidate to have the flag removed, since it
-  is green on its first run and stayed green on every run since.
+  the launchers. Until then `test (windows-latest)` stays `continue-on-error`.
+  `test (macos-latest)` had its flag **removed** in the final fix wave — it
+  was green on its first run and on every run since, so it is now blocking.
 - **Dependabot version updates work; Dependabot security *alerts* are
   disabled.** The two are separate features. Version updates began the moment
   `main` gained `.github/dependabot.yml` (it reads config from the *default*
@@ -852,9 +897,20 @@ Windows actually reported.
   and opened **zero** PRs, i.e. everything is genuinely current, which is a
   stronger statement than silence. But `GET /repos/…/dependabot/alerts`
   returns `403 Dependabot alerts are disabled for this repository`. Enabling
-  them is a repo-settings toggle nobody has flipped; `make security`'s
-  govulncheck covers the same ground on every push, so this is a gap in
-  notification, not in detection.
+  them is a repo-settings toggle nobody has flipped. **This is a real
+  detection gap, not just a notification one — and it is asymmetric between
+  the two ecosystems:**
+  - `gomod`: `make security`'s govulncheck genuinely does cover this on
+    every push, against the same Go vulnerability database. For Go modules
+    the "notification, not detection" framing holds.
+  - `github-actions`: **nothing covers it.** govulncheck analyses Go
+    modules and Go call graphs; it has no idea `.github/workflows/*.yml`
+    exists. And every action here is SHA-pinned (`TestWorkflowActionsArePinnedToShas`
+    enforces it), so a pinned action is frozen at that commit — a
+    vulnerability disclosed against it later moves nothing and warns
+    nobody. Dependabot version updates raise a PR when a *newer* version
+    ships, which is not the same signal and is not driven by the advisory
+    database. Enabling security alerts is the only thing that closes this.
 - **Three of the six Phase 4a launchers ship doc-verified-only; their live
   gates were skipped by owner scope (Task 9), not run and failed:**
   - **qwen** — the `modelProviders` collision is the specific unresolved
@@ -1009,29 +1065,54 @@ Ask of every test: *would this fail if the behavior it names were broken?*
 
 ## Verify the tree is sound
 
-`make ci` runs all of the below in one command, and is exactly what
-`.github/workflows/ci.yml` invokes.
+`make ci` runs the **mechanical** checks below in one command:
+
+```
+fmt-check vet lint lint-cross lint-workflows tidy-check cross \
+security test-race cover-check test-isolated
+```
+
+(there is no bare `test` in that list because the full suite runs inside
+`cover-check`.) The `/tmp/orl` lines below are **not** covered by it, and
+no CI job performs them either: they hit the live OpenRouter API, so they
+are a manual smoke test you run by hand.
+
+`.github/workflows/ci.yml` invokes those same Makefile targets rather than
+re-spelling the commands in YAML — but it is *not* literally `make ci`, and
+three differences are deliberate:
+
+1. the `quality` job runs `golangci/golangci-lint-action` where `make ci`
+   runs `make lint`. The action installs the pinned binary and puts it on
+   `PATH`, which is exactly what the following `make lint-cross` step then
+   reuses;
+2. the `audit` job runs `make tools` first, to build the analysis binaries
+   with that job's own toolchain (Landmine 25);
+3. the `audit` job adds the gosec SARIF report, its failed-analysis guard,
+   and the upload steps, none of which exist as a Makefile target.
 
 ```bash
 go test ./... -count=1
 go test ./internal/tui/ -race -count=1
 go vet ./... && gofmt -l .
 GOOS=windows go build ./... && GOOS=darwin go build ./...
+
+# Landmine 8: nothing may depend on Claude Code, pi, hermes, or cline
+# being installed here. Landmine 27: use the target, never a hand-written
+# PATH — a hardcoded /usr/local/go/bin strips `go` itself on a CI runner.
+make test-isolated
+
+# --- live-API smoke test; NOT run by `make ci` or by any CI job ---
 go build -o /tmp/orl . && /tmp/orl agents
 /tmp/orl models --tools=false | head -5
 /tmp/orl models | head -5
 /tmp/orl bogus                      # must error: unknown command
 /tmp/orl < /dev/null                # must refuse, naming --model
-
-# Landmine 8: nothing may depend on Claude Code, pi, hermes, or cline
-# being installed here.
-HOME=$(mktemp -d) PATH="/usr/local/go/bin:/usr/bin:/bin" go test ./... -count=1
 ```
 
-The `HOME` line is the one that catches machine-dependent tests. It must be
-fully green — `claude`, `pi`, `hermes`, and (since Task 9) `cline` are all
-really installed on this machine (see Landmine 8), and a test that forgot
-to isolate `HOME` passes here and fails everywhere else.
+`make test-isolated` is the line that catches machine-dependent tests. It
+must be fully green — `claude`, `pi`, `hermes`, and (since Task 9) `cline`
+are all really installed on this machine (see Landmine 8), and a test that
+forgot to isolate `HOME` passes here and fails everywhere else.
 
 **Write-site verification** (Landmine 6, four sites — see the table above):
 grep for every write primitive, `CreateTemp` included. This is the exact
@@ -1065,7 +1146,8 @@ those four stops having a hit (the allowlist going stale in the safe
 direction). The grep above is still worth running by hand when auditing,
 but the tree cannot silently regress between audits anymore.
 
-The last two hit the live OpenRouter API. Bare `models` should be a subset of
+On the two `/tmp/orl models` lines above (the live-API ones): bare `models`
+should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
 and a coding agent without tool calling is unusable, so the unfiltered form
 only widens the list. If you have ever persisted a config with

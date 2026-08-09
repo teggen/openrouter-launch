@@ -53,8 +53,10 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   only required interface and its `Command(Request) (Command, error)` MUST
   be pure (no writes, no network, no spawning): purity is what lets every
   agent be tested by comparing a struct. Everything else is opt-in
-  capability interfaces detected by type assertion (`Installable`,
-  `Compatible`, `PlatformSupported`, `ConfigWriter`…). Unsupported agents
+  capability interfaces detected by type assertion — the whole set is
+  `Installable`, `Installer`, `Compatible`, `PlatformSupported`,
+  `ConfigWriter`, `CredentialShadowCheck`, and `Staged`
+  (`internal/agent/agent.go`). Unsupported agents
   stay registered with a stub launcher and a reason — `Spec.Launcher` nil
   panics at init. `ExecArgs` dedupes the environment so our env always
   beats the user's stray exports (Landmine 3); on Unix the handoff is
@@ -77,8 +79,23 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
 - **Zero-touch principle (the design's central claim):** agents are
   configured only via env vars, inline-config env content, or CLI
   overrides — never by writing an agent's own config files. The tree has
-  exactly two write sites (XDG cache + XDG config), verified by grep, and
-  the config file is 0600 (it holds an API key). Claude Code and codex are
+  exactly **four** write sites, and all four are sanctioned — see Landmine
+  6's table in `HANDOFF.md` for the authoritative version:
+
+  | # | File | What it writes |
+  |---|---|---|
+  | 1 | `internal/openrouter/cache.go` | `$XDG_CACHE_HOME/openrouter-launch/models.json` |
+  | 2 | `internal/config/config.go` | `$XDG_CONFIG_HOME/openrouter-launch/config.json` — 0600, it holds the API key |
+  | 3 | `internal/launch/handoff.go` | the `Staged` materializer, launcher-owned files under our own config dir (openclaw) |
+  | 4 | `internal/agent/droid.go` | the one sanctioned **agent-owned** write: `ConfigWriter.Apply`, marker-owned entries in `~/.factory/settings.local.json`, restored on exit |
+
+  Sites 3 and 4 are not violations of zero-touch; the principle is "never
+  write an agent's files *except* through the capability-gated, restoring
+  `ConfigWriter`". The enumeration is enforced by grep and pinned by
+  `TestWriteSitesAreExhaustivelyEnumerated` (`writesites_test.go`), whose
+  allowlist is the machine-checked source of truth — a fifth write site
+  anywhere, or any write inside `internal/agent` outside `droid.go`, is a
+  Critical defect. Claude Code and codex are
   pointed at *different* OpenRouter base URLs on purpose (Landmine 1), and
   codex requires `wire_api="responses"` (Landmine 18).
 
