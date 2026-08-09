@@ -31,9 +31,9 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
-| Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
+| Phase 4a | Complete: six Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. **Five of the six are zero-touch; cline is not, as of 2026-08-09** — env-only delivery cannot configure an interactive cline session, and its Task 9 gate could not see that because it ran one-shot prompts against a virgin `~/.cline` (both conditions hide the two mechanisms; see Landmine 36). cline is now `-k` on argv plus a snapshot/restore `ConfigWriter` (write site 5). |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **489** total, verified by both counting methods below. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Tests | **495** total, verified by both counting methods below. The cline `-k` fix (Landmine 36) added 6 net — 7 new (argv key, the `ConfigWriter` assertion, four `Apply`/restore cases) minus the deleted `TestClineShadowedCredential`, whose premise the fix invalidated. It was 489 before. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-09 after the listing-tables change; last confirmed in GitHub Actions at `v0.1.1`. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (**all three blocking** as of 2026-08-09: Windows' 19 platform-fixture failures are closed and its `experimental` flag is off), machine-independence; all branches |
@@ -228,13 +228,14 @@ invert the order — it used to live in `resolveAndRun`, which is why the two
 are no longer allowed to drift apart. On Unix `agent.Run` uses `syscall.Exec`
 and replaces the process — nothing after it executes.
 
-**6. Zero-touch is absolute — amended twice (Phase 4b Tasks 1 and 4) to its
-final four-site form.** The original invariant was "exactly two write
-sites, both launcher-owned." The principle was always "never write an
-**agent's** files"; Phase 4b made the launcher-owned side explicit and
-added the one sanctioned agent-owned exception. This table matches the
-Phase 4 spec's (`docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md`)
-verbatim:
+**6. Zero-touch is absolute — amended three times (Phase 4b Tasks 1 and 4,
+then the cline env-inertness fix) to its current five-site form.** The
+original invariant was "exactly two write sites, both launcher-owned." The
+principle was always "never write an **agent's** files"; Phase 4b made the
+launcher-owned side explicit and added the first sanctioned agent-owned
+exception. Sites 1-4 match the Phase 4 spec's
+(`docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md`)
+verbatim; site 5 postdates it:
 
 | # | Path | Owner | Written by | Secret? |
 |---|---|---|---|---|
@@ -242,16 +243,25 @@ verbatim:
 | 2 | `$XDG_CONFIG_HOME/openrouter-launch/config.json` | launcher | `internal/config` | yes (0600) |
 | 3 | `$XDG_CONFIG_HOME/openrouter-launch/openclaw.json` | launcher | `Staged` materializer in `launch.Service.Launch` (`stageFiles`) | **no** (model ref only; key stays in env) |
 | 4 | `~/.factory/settings.local.json` | **agent (droid)** | `ConfigWriter.Apply`, capability-gated, marker-owned entries only, restore on exit | **no** (`"apiKey": "${OPENROUTER_API_KEY}"` interpolation) |
+| 5 | `~/.cline/data/settings/providers.json` | **agent (cline)** | `ConfigWriter` **restore only** — `Apply` snapshots raw bytes + mode and writes nothing; cline itself persists the key that `-k` supplies (Landmine 36) | the key lands there **during the session, written by cline**, and restore removes it |
+
+Site 5 is the one entry where a secret of the user's genuinely touches an
+agent's config file, and it is not us who puts it there — which is exactly
+why the capability is implemented: without `Apply`'s snapshot the key
+persists in cline's store forever, becoming the saved credential every
+later launch resolves. It is also the only site whose write primitive exists
+solely to *undo* a write.
 
 Rules that survive unchanged: no other writes anywhere in the tree,
 verified by exhaustive grep and now pinned by
 `TestWriteSitesAreExhaustivelyEnumerated` (see "Verify the tree is
-sound"); the API key is never written outside site 2; `Command()` stays
-pure — sites 3 and 4 are materialized by the launch service or `Apply`,
-never by a launcher's `Command` method. Any code writing into an agent's
-own config outside `ConfigWriter`, or any write anywhere in `internal/agent`
-outside `droid.go`'s `Apply`/`restore`/`writeDroidSettingsFile`, is a
-Critical defect.
+sound"); the API key is never written **by us** outside site 2;
+`Command()` stays pure — sites 3, 4, and 5 are materialized by the launch
+service or `Apply`, never by a launcher's `Command` method. Any code
+writing into an agent's own config outside `ConfigWriter`, or any write
+anywhere in `internal/agent` outside `droid.go`'s
+`Apply`/`restore`/`writeDroidSettingsFile` and `cline.go`'s
+`Apply`/`restore`/`writeClineProvidersFile`, is a Critical defect.
 
 **7. `CheckModel` incompatibility is advisory.** Warn and confirm; never abort.
 Claude Code with a non-`anthropic/*` model works for many models; OpenRouter only
@@ -510,7 +520,7 @@ reintroduces both the purity violation and exposure to the upstream bug,
 and this path was never live-verified against 0.190.0 (Task 5 skipped; see
 Open items).
 
-**24. A `ConfigWriter` agent (currently only droid) never takes the
+**24. A `ConfigWriter` agent (droid and cline) never takes the
 `syscall.Exec` handoff — it goes through fork-and-wait so `restore` can
 run.** `launch.Service.Launch` (`internal/launch/handoff.go`) type-asserts
 `p.Spec.Launcher` against `agent.ConfigWriter`; if it satisfies the
@@ -796,6 +806,62 @@ inside one, and the two single-line pieces go through `clampLine`. When
 adding chrome to any screen, assume it will be rendered on a 40-column
 terminal, and assert on **every** line of `View()` — a test scoped to the
 interesting rows is how this survived as long as it did.
+
+**36. cline's key MUST go on argv via `-k`; `OPENROUTER_API_KEY` alone
+cannot configure an interactive cline session, and the launcher's original
+env-only design never could.** Reported as a bug (2026-08-09): launching
+cline landed on "Connect a model provider to get started." Two independent
+mechanisms, both measured live against 3.0.52:
+
+- **The TUI's provider gate reads persisted settings only** — never the
+  environment, cold or warm. With no saved key it renders the onboarding
+  wizard whatever the environment holds. This is the reported symptom, and
+  on its own it makes env-only delivery unusable for interactive launches
+  (the normal case: no prompt argument means the TUI).
+- **The process we exec does not call the model.** Cline runs sessions
+  through a long-lived **hub daemon** (`--cline-hub-daemon`, one per data
+  dir, local WebSocket, lock file at
+  `~/.cline/data/locks/hub/production.json`). Its credential chain —
+  `apiKey` → OAuth resolver → `apiKeyEnv` — reads **its own**
+  `process.env`, i.e. the environment of whatever first spawned it. Env
+  delivery therefore works only while our launch is the one starting the
+  daemon; a daemon started hours earlier from the user's shell keeps serving
+  that shell's key. Proof: a launch carrying a **dummy**
+  `OPENROUTER_API_KEY` returned a real completion, because the daemon held
+  the user's genuine key (confirmed in `/proc/<pid>/environ`). So even
+  one-shot env-only launches were not merely fragile — they silently billed
+  whichever key the daemon happened to start with.
+
+**Why the Phase 4a live gate passed anyway** (worth internalising before
+trusting any future gate): Task 9 really did run cline end to end on a
+virgin `~/.cline` with no `cline auth` and the env key only, and got `OK`
+back. Both of its conditions hide the bug — it passed a **prompt**, so the
+TUI gate never ran, and `~/.cline` was **virgin**, so its own invocation
+spawned the daemon and the daemon inherited the gate's environment. A gate
+that exercises one-shot mode on a cold daemon cannot see either mechanism.
+When gating an agent, launch it the way users launch it: interactively, and
+a second time with its state already warm.
+
+`-k` is the only delivery verified to reach the model call, and it outranks
+both the daemon's environment and a **saved** `providers.json` key (all
+three measured; the ordering is explicit in the CLI's own `resolveApiKey`,
+where the passed key is checked first). The costs are accepted deliberately:
+the key is visible in `/proc/<pid>/cmdline`, and **cline persists it into
+`~/.cline/data/settings/providers.json`** — which is why cline is a
+`ConfigWriter` (write site 5) whose `Apply` writes nothing and only
+snapshots, so restore can put the file back byte-for-byte.
+
+Two corollaries. (a) The env var is still set, on purpose: on a cold start
+our client is what spawns the daemon, so our env becomes the daemon's and a
+stray user export does not — the Landmine 3 class, one process removed.
+(b) `Cline.ShadowedCredential` was **removed**, not repaired: its premise
+(a saved key outranks the launch's key) is false once `-k` is passed, and
+`TestClineDoesNotClaimCredentialShadowing` pins the removal so re-adding it
+has to answer a test. Do not "restore zero-touch" by dropping `-k` back to
+env-only — that is precisely the bug. Note also that ollama's cline
+integration writes `globalState.json` with `welcomeViewCompleted`; that key
+does not exist anywhere in the 3.x CLI binary and is pure VS Code-era
+legacy.
 
 ## Phase 2 — complete
 

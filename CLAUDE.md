@@ -77,27 +77,31 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   `Catalog` interface; `Cache` wraps a `Catalog` and adds provenance —
   deliberately not merged. Unknown pricing is never treated as free.
 - **Zero-touch principle (the design's central claim):** agents are
-  configured only via env vars, inline-config env content, or CLI
-  overrides — never by writing an agent's own config files. The tree has
-  exactly **four** write sites, and all four are sanctioned — see Landmine
-  6's table in `HANDOFF.md` for the authoritative version:
+  configured only via env vars, inline-config env content, CLI overrides,
+  or — where nothing else reaches the agent — a key on argv; never by
+  writing an agent's own config files. The tree has exactly **five** write
+  sites, and all five are sanctioned — see Landmine 6's table in
+  `HANDOFF.md` for the authoritative version:
 
   | # | File | What it writes |
   |---|---|---|
   | 1 | `internal/openrouter/cache.go` | `$XDG_CACHE_HOME/openrouter-launch/models.json` |
   | 2 | `internal/config/config.go` | `$XDG_CONFIG_HOME/openrouter-launch/config.json` — 0600, it holds the API key |
   | 3 | `internal/launch/handoff.go` | the `Staged` materializer, launcher-owned files under our own config dir (openclaw) |
-  | 4 | `internal/agent/droid.go` | the one sanctioned **agent-owned** write: `ConfigWriter.Apply`, marker-owned entries in `~/.factory/settings.local.json`, restored on exit |
+  | 4 | `internal/agent/droid.go` | **agent-owned** write: `ConfigWriter.Apply`, marker-owned entries in `~/.factory/settings.local.json`, restored on exit |
+  | 5 | `internal/agent/cline.go` | **agent-owned restore only**: `Apply` snapshots `~/.cline/data/settings/providers.json` and writes nothing; cline itself persists the key `-k` supplies, and restore removes it (Landmine 36) |
 
-  Sites 3 and 4 are not violations of zero-touch; the principle is "never
-  write an agent's files *except* through the capability-gated, restoring
-  `ConfigWriter`". The enumeration is enforced by grep and pinned by
-  `TestWriteSitesAreExhaustivelyEnumerated` (`writesites_test.go`), whose
-  allowlist is the machine-checked source of truth — a fifth write site
-  anywhere, or any write inside `internal/agent` outside `droid.go`, is a
-  Critical defect. Claude Code and codex are
-  pointed at *different* OpenRouter base URLs on purpose (Landmine 1), and
-  codex requires `wire_api="responses"` (Landmine 18).
+  Sites 3, 4, and 5 are not violations of zero-touch; the principle is
+  "never write an agent's files *except* through the capability-gated,
+  restoring `ConfigWriter`". The enumeration is enforced by grep and pinned
+  by `TestWriteSitesAreExhaustivelyEnumerated` (`writesites_test.go`), whose
+  allowlist is the machine-checked source of truth — a sixth write site
+  anywhere, or any write inside `internal/agent` outside `droid.go` and
+  `cline.go`, is a Critical defect. Claude Code and codex are
+  pointed at *different* OpenRouter base URLs on purpose (Landmine 1),
+  codex requires `wire_api="responses"` (Landmine 18), and cline's key must
+  travel on argv because its hub daemon makes env delivery inert
+  (Landmine 36).
 
 ## Testing conventions
 

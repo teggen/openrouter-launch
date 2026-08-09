@@ -16,11 +16,14 @@ openrouter-launch profile add --name opus-cc --agent claude --model anthropic/cl
 
 ## Zero-touch configuration
 
-**This tool never writes into an agent's own configuration.** Agents are
-configured through environment variables, inline-config env content, or CLI
-overrides. There is no `--restore` because there is nothing to restore.
+**This tool does not reconfigure your agents.** Agents are pointed at
+OpenRouter through environment variables, inline-config env content, or CLI
+overrides — not by editing the config files you maintain. Two agents cannot be
+driven that way at all (`droid` and `cline`, below); for those, the launcher
+restores the file it touched when the session ends, so there is no `--restore`
+flag to run yourself.
 
-It writes exactly four files, and only two of them ever exist for a typical
+It writes exactly five files, and only two of them ever exist for a typical
 launch:
 
 | Path | Owner | Holds a secret? |
@@ -29,15 +32,26 @@ launch:
 | `$XDG_CONFIG_HOME/openrouter-launch/config.json` | this tool | **yes — mode 0600** |
 | `$XDG_CONFIG_HOME/openrouter-launch/openclaw.json` | this tool (openclaw only) | no |
 | `~/.factory/settings.local.json` | **Factory Droid** (droid only) | no — the key is an env interpolation |
+| `~/.cline/data/settings/providers.json` | **Cline CLI** (cline only) | **yes, during the session — written by cline itself, removed again on exit** |
 
-The fourth is the single sanctioned exception: Factory exposes no environment
-variable or flag that selects a custom model, so `droid` gets a capability-gated
-writer that touches only its own marker-owned entry and restores the file when
-the session ends.
+The last two are the sanctioned exceptions, both capability-gated and both
+restored when the session ends. Factory exposes no environment variable or
+flag that selects a custom model, so `droid` gets a writer that touches only
+its own marker-owned entry. Cline is the inverse: this tool writes nothing
+there, but cline persists the key it is given, so the launcher snapshots that
+file first and puts it back afterwards — otherwise your key would remain
+cline's saved credential long after the session.
 
 Your OpenRouter API key is read from `OPENROUTER_API_KEY` or from
-`config.json`. It is never written anywhere else, and never passed on a command
-line.
+`config.json`, and is never written anywhere else by this tool.
+
+**One exception to keep in mind:** for `cline`, the key is passed on the
+command line (`-k`). Cline's interactive session cannot be configured any
+other way — it reads credentials from saved settings and from a background
+daemon it may have started long before, so an environment variable does not
+reach it. While a cline session runs, the key is therefore visible to other
+processes on the machine via `/proc/<pid>/cmdline` (and to `ps`). Every other
+agent gets the key through the environment only.
 
 ## Install
 
@@ -90,7 +104,7 @@ been run against a real install.
 | OpenCode | `opencode` | `OPENCODE_CONFIG_CONTENT` inline JSON | live |
 | Pi | `pi` | environment variables | live |
 | Hermes Agent | `hermes` | environment variables | live |
-| Cline CLI | `cline` | environment variables | live |
+| Cline CLI | `cline` | `-P openrouter -m <slug>` plus the key on argv (`-k`), with its provider store snapshotted and restored | live |
 | Qwen Code | `qwen` | `--auth-type openai` plus `OPENAI_*` | doc |
 | Kimi Code CLI | `kimi` | `KIMI_MODEL_*` environment family | doc |
 | Oh My Pi | `omp` | `--model openrouter/<slug>` | doc |

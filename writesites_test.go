@@ -17,9 +17,9 @@ var writeSitePattern = regexp.MustCompile(
 	`\bos\.WriteFile\b|\bos\.Create\(|\bos\.OpenFile\b|\bos\.MkdirAll\b|\bos\.Rename\b|\bos\.CreateTemp\b`,
 )
 
-// writeSiteAllowlist is the exhaustive Landmine 6 enumeration (amended
-// twice in Phase 4b to its four-site final form — see HANDOFF.md's Landmine
-// 6 and the write-site table in
+// writeSiteAllowlist is the exhaustive Landmine 6 enumeration (amended twice
+// in Phase 4b to a four-site form, then to five when cline became a
+// ConfigWriter — see HANDOFF.md's Landmine 6 and the write-site table in
 // docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md): the
 // only files in the module allowed to call a raw write primitive. A write
 // primitive anywhere else in the tree is a Critical defect — an
@@ -30,6 +30,11 @@ var writeSiteAllowlist = map[string]bool{
 	"internal/config/config.go":    true, // site 2: config.json
 	"internal/launch/handoff.go":   true, // site 3: Staged materializer
 	"internal/agent/droid.go":      true, // site 4: droid's ConfigWriter
+	// Site 5: cline's ConfigWriter. Note the inversion relative to site 4 —
+	// this one only ever RESTORES. Cline itself does the writing (-k is
+	// persisted into its provider store), and the write primitive here exists
+	// to put the user's file back, which is the narrower of the two powers.
+	"internal/agent/cline.go": true,
 }
 
 // TestWriteSitesAreExhaustivelyEnumerated pins Landmine 6 as a regression
