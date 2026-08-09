@@ -1,2 +1,5 @@
 openrouter-launch
 /orl
+/coverage.out
+/coverage.html
+/dist/
