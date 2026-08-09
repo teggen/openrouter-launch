@@ -1451,6 +1451,31 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Added after Task 4's review. goreleaser_test.go pins the ldflag import
+      # paths, but it is a raw substring match over the YAML with no structural
+      # awareness — a commented-out or misindented ldflag line still passes it,
+      # and the binary then ships reporting "dev". Extracting the real artifact
+      # and asserting it knows its own tag is the only check that closes that
+      # gap, and putting it here makes it continuous rather than something a
+      # human remembers to do at release time.
+      - name: The published binary must know its own version
+        run: |
+          set -euo pipefail
+          tar -xzf dist/openrouter-launch_*_linux_amd64.tar.gz -C /tmp openrouter-launch
+          got=$(/tmp/openrouter-launch --version)
+          echo "$got"
+          case "$got" in
+            *dev*|*none*|*unknown*)
+              echo "::error::released binary reports placeholder build info: $got" >&2
+              echo "the ldflags never reached it — see .goreleaser.yaml's builds.ldflags" >&2
+              exit 1 ;;
+          esac
+          case "$got" in
+            *"${GITHUB_REF_NAME#v}"*) echo "ok: reports its own tag" ;;
+            *) echo "::error::binary reports '$got', which does not contain tag ${GITHUB_REF_NAME}" >&2
+               exit 1 ;;
+          esac
 ```
 
 - [ ] **Step 7: Extend the pin tests to cover release.yml**
