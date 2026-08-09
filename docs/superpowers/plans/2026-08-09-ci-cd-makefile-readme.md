@@ -22,6 +22,16 @@
 - **Pinned tool versions:** golangci-lint `v2.12.2`, goreleaser `v2.17.1`. Defined in the Makefile; workflows must pin the same strings (Tasks 5 and 6 add tests for this).
 - **`.golangci.yml` must use the v2 schema** (`version: "2"`). `golangci-lint-action` v9 rejects v1 outright. If a locally installed v1 binary rejects the config, upgrade the binary via `make tools` — never downgrade the config.
 - **Branch situation during this plan:** `develop` was created from `main` before Task 1 and pushed (owner's decision, 2026-08-09 — the end-state branch model applied one phase early). **Tasks 1–7 commit to `develop`**, which is already checked out; do not switch branches. `main` is three commits behind and is not touched until Task 8, which fast-forwards it from `develop` and then cuts `v0.1.0`. The beta tag is cut on `develop` before that merge, so the branch guard sees genuinely diverged branches.
+- **Every task that adds or edits a `.go` file must run `make lint` AND
+  `make lint-cross` before committing** — not just `go test`, `go vet`, and
+  `gofmt`. Learned the expensive way: Task 6 added `tagguard_test.go` (a
+  `//go:build !windows` file) and verified with tests + actionlint + vet + fmt,
+  none of which run golangci-lint. It carried two `noctx` findings that would
+  have turned the first-ever CI run red, and the `GOOS=windows` pass reported
+  `0 issues` because the build tag excludes the file there. Task 8's pre-push
+  gate caught it before anything was pushed. Lint is per-`GOOS`; a build-tagged
+  file is only ever seen by the platform it is tagged for.
+
 - **Existing invariants still bind.** `writesites_test.go` fails if any non-test `.go` file outside the four allowlisted write sites uses a write primitive — no task here adds one. Landmine 8's `HOME`-isolation rule still applies to any test that needs a binary to look absent.
 
 ---
