@@ -963,6 +963,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -987,14 +988,20 @@ func makefileVar(t *testing.T, name string) string {
 	return string(m[1])
 }
 
+// Anchored to the actual `version:` field, not a bare substring search. A
+// plain strings.Contains passes for two wrong reasons: v2.12.2 is a PREFIX of
+// v2.12.25, so a genuinely divergent pin satisfies it; and the string
+// appearing anywhere — a comment, or a leftover after the whole
+// golangci-lint-action step is deleted — satisfies it too.
 func TestCIPinsTheMakefilesGolangciLintVersion(t *testing.T) {
 	want := makefileVar(t, "GOLANGCI_VERSION")
 	ci, err := os.ReadFile(".github/workflows/ci.yml")
 	if err != nil {
 		t.Fatalf("reading ci.yml: %v", err)
 	}
-	if !strings.Contains(string(ci), want) {
-		t.Errorf("ci.yml does not pin golangci-lint %s (the Makefile's GOLANGCI_VERSION); local and CI would run different linters", want)
+	re := regexp.MustCompile(`(?m)^\s*version:\s*` + regexp.QuoteMeta(want) + `\s*$`)
+	if !re.Match(ci) {
+		t.Errorf("ci.yml has no `version: %s` field pinning golangci-lint (the Makefile's GOLANGCI_VERSION); local and CI would run different linters", want)
 	}
 }
 
@@ -1006,7 +1013,17 @@ func TestWorkflowActionsArePinnedToShas(t *testing.T) {
 	uses := regexp.MustCompile(`(?m)uses:\s+([^\s@]+)@(\S+)`)
 	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-	for _, path := range []string{".github/workflows/ci.yml"} {
+	// Globbed rather than listed, so a workflow added later is covered
+	// automatically instead of depending on someone remembering to extend
+	// this slice.
+	paths, err := filepath.Glob(".github/workflows/*.yml")
+	if err != nil {
+		t.Fatalf("globbing workflows: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no workflows found under .github/workflows/ — this test would pass vacuously")
+	}
+	for _, path := range paths {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("reading %s: %v", path, err)
@@ -1052,6 +1069,8 @@ jobs:
   quality:
     name: quality
     runs-on: ubuntu-latest
+    # Without this, a hung job burns the 360-minute default before anyone notices.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -1075,6 +1094,7 @@ jobs:
   audit:
     name: audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -1090,9 +1110,16 @@ jobs:
         run: make tools
       - name: govulncheck, go mod verify, advisory gosec
         run: make security
+      # NOT `-quiet`: with -quiet, gosec writes NO report file at all when it
+      # finds nothing, and -no-fail additionally swallows a failed SSA build
+      # (it exits 0 having analysed nothing). Combined with continue-on-error
+      # on the upload, that chain can go green having performed zero security
+      # analysis — masked today only by the tree happening to have ~30
+      # findings. Without -quiet the SARIF is written unconditionally, so a
+      # missing file becomes a real signal that the artifact step can catch.
       - name: gosec SARIF report
         if: always()
-        run: $(go env GOPATH)/bin/gosec -quiet -no-fail -fmt sarif -out gosec.sarif ./...
+        run: $(go env GOPATH)/bin/gosec -no-fail -fmt sarif -out gosec.sarif ./...
       - name: Upload SARIF to the Security tab
         if: always()
         continue-on-error: true
@@ -1105,10 +1132,14 @@ jobs:
         with:
           name: gosec-sarif
           path: gosec.sarif
+          # The one step in this chain that is NOT softened, so it is where a
+          # gosec that analysed nothing actually surfaces.
+          if-no-files-found: error
 
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     # Windows and macOS have never run this suite. They start advisory so a
     # red result reports the gap instead of blocking every push; remove the
     # flag per-OS as each goes green. That removal is the definition of done
@@ -1139,14 +1170,21 @@ jobs:
         run: make test-race
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
+        # `shell: bash` is LOAD-BEARING and must not be dropped as noise. With
+        # no `shell:` key, GitHub runs `bash -e {0}` — WITHOUT pipefail — so
+        # `make cover-check | tee` would exit with tee's status, i.e. 0, and
+        # the 80% floor would never fail a run. The "below the floor" message
+        # would appear in the job summary while the step, job, and run all went
+        # green. Writing `shell: bash` explicitly is what selects
+        # `bash --noprofile --norc -eo pipefail {0}`.
+        shell: bash
         run: |
           echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          make cover-check 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          # One make invocation, not two: separate calls re-run the `cover`
+          # prerequisite and with it the whole suite a second time.
+          make cover-check cover-html 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Coverage HTML
-        if: matrix.os == 'ubuntu-latest'
-        run: make cover-html
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: matrix.os == 'ubuntu-latest'
         with:
@@ -1159,6 +1197,7 @@ jobs:
     # name is the point.
     name: machine-independence (Landmine 8)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
