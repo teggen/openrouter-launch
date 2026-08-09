@@ -186,10 +186,13 @@ invert the order — it used to live in `resolveAndRun`, which is why the two
 are no longer allowed to drift apart. On Unix `agent.Run` uses `syscall.Exec`
 and replaces the process — nothing after it executes.
 
-**6. Zero-touch is absolute.** The only two write sites in the entire tree are
-`$XDG_CACHE_HOME/openrouter-launch/models.json` and
-`$XDG_CONFIG_HOME/openrouter-launch/config.json`. Verified by exhaustive grep, not
-assertion. Any code writing into an agent's own config is a Critical defect.
+**6. Zero-touch is absolute.** Launcher-owned writes only: three write sites are
+`$XDG_CACHE_HOME/openrouter-launch/models.json`,
+`$XDG_CONFIG_HOME/openrouter-launch/config.json`, and staged files under the
+config dir via `stageFiles` in `internal/launch/handoff.go`. Agent-owned writes
+forbidden outside `ConfigWriter` (arriving Phase 4b Task 3/4). Verified by
+exhaustive grep, not assertion. Any code writing into an agent's own config is a
+Critical defect.
 
 **7. `CheckModel` incompatibility is advisory.** Warn and confirm; never abort.
 Claude Code with a non-`anthropic/*` model works for many models; OpenRouter only
@@ -649,6 +652,20 @@ The `HOME` line is the one that catches machine-dependent tests. It must be
 fully green — `claude`, `pi`, `hermes`, and (since Task 9) `cline` are all
 really installed on this machine (see Landmine 8), and a test that forgot
 to isolate `HOME` passes here and fails everywhere else.
+
+**Write-site verification** (Landmine 6): the three launcher-owned write sites
+are `models.json` (cache), `config.json` (config), and staged files written in
+`stageFiles` (`internal/launch/handoff.go`). Exhaustive grep to verify nothing
+else writes into the tree:
+
+```bash
+grep -rE '(WriteFile|MkdirAll|Create|OpenFile|Truncate)\s*\(' \
+  internal/ | grep -v '_test\.go' | grep -v '\.go:.*\/\/'
+```
+
+Expected output: only `config.Save` (config.json), `openrouter.Snapshot` with
+cached models, and `stageFiles` (staged files under config dir). Any other
+write is a Critical defect per Landmine 6.
 
 The last two hit the live OpenRouter API. Bare `models` should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,
