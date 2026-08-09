@@ -419,6 +419,87 @@ workspace — each launcher merges only after its gate passes):**
 **The standing suite stays green:** `go test ./... -count=1`, `-race` on tui, vet, gofmt,
 cross-builds, the `HOME`-redirect run, and the updated write-site grep.
 
+### Live verification results (2026-08-09)
+
+Run against the real OpenRouter API with `openai/gpt-4o-mini` (owner-approved cents-level
+spend), pi 0.80.3, Hermes Agent v0.20.0, Cline CLI 3.0.52 — each launched from a scratch
+working directory (`cd "$(mktemp -d)"`) per the Task 9 brief. Full logs (grepped for the
+key after every run — zero hits, confirmed below) live at
+`.superpowers/sdd/2026-08-09-phase-4a/live-*.log`. Owner scope adjustment at gate time:
+only pi, hermes (both already installed), and cline (`npm install -g cline`, the one
+install the owner approved) were gated; qwen, kimi, and omp remain doc-verified-only —
+see "Skipped gates" below. openclaw and droid are later tasks, out of scope here.
+
+- **pi, raw and through-binary.** Both `pi --provider openrouter --model
+  openai/gpt-4o-mini -p …` and `orl pi -m openai/gpt-4o-mini -- -p …` returned "OK" on
+  the first try. Installed pi is 0.80.3, not the 0.84.1 the design doc above doc-verified
+  against — the mechanism (bare slug, `--provider openrouter`, `OPENROUTER_API_KEY`) held
+  unchanged across that version gap; no launcher code change follows from the version
+  difference. A `:free` slug (`nvidia/nemotron-3-ultra-550b-a55b:free`) round-tripped
+  correctly too — `pi --list-models` lists the base and `:free` ids as two distinct
+  literal catalog rows, confirming pi does not parse `:free` as a `sonnet:high`-style
+  thinking suffix. A real OpenRouter slug pi's curated catalog lacks
+  (`aion-labs/aion-2.0`) produced `Warning: Model "aion-labs/aion-2.0" not found for
+  provider "openrouter". Using custom model id.` and then exited 0 with no completion
+  text at all — a silent no-op, not a hard error; worth knowing if a script ever gates on
+  pi's exit code for this case. `ls -laR ~/.pi/agent` before/after: only pi's own
+  per-tempdir session `.jsonl` files appeared under `~/.pi/agent/sessions/`; `auth.json`,
+  `models.json`, `settings.json` untouched.
+- **hermes, raw and through-binary.** Both `hermes chat --provider openrouter --model
+  openai/gpt-4o-mini -q …` and `orl hermes -m openai/gpt-4o-mini -- -q …` returned "OK",
+  confirming `chat`-subcommand flags work exactly as documented. `~/.hermes/config.yaml`
+  is byte-identical before and after every run in this gate (same md5, same mtime) — the
+  "no mutation" claim holds.
+- **hermes, `.env` precedence — confirms the shadow-credential advisory.** Per the brief,
+  the real `~/.hermes/.env` was never touched; `HOME` was pointed at a full copy of
+  `~/.hermes` instead. With a syntactically valid but wrong `OPENROUTER_API_KEY` planted
+  in the copy's `.env` and the real key passed via the process environment, the launch
+  **failed** (`HTTP 401: User not found.`) — the stale `.env` key won. Re-running with
+  that line commented back out (same `HOME` copy, same real env var) succeeded. This
+  confirms `Hermes.ShadowedCredential()`'s existing warning ("has an OPENROUTER_API_KEY
+  saved in ~/.hermes/.env that may override the key this launch provides") is accurate —
+  "may" is, in practice, "does." No code change; the advisory already said this.
+- **hermes, context floor — falsified and fixed (Landmine 18).** Both this design doc and
+  `hermesMinContext` encoded "64K" as the binary 65,536. hermes's own startup message for
+  a 4,095-token model read *"below the minimum 64,000"* — decimal, not binary. Confirmed
+  at the boundary: `microsoft/wizardlm-2-8x22b` (context 65,535 — below 65,536, above
+  64,000) passed hermes's own context gate and only failed afterwards for an unrelated
+  reason (`HTTP 404: No endpoints found that support tool use`). Fixed: `hermesMinContext`
+  changed from `65536` to `64000` in `internal/agent/hermes.go`;
+  `TestHermesCheckModelContextFloor` gained three boundary cases (63,999 rejected; 64,000
+  and 65,000 accepted) that failed against the old constant and pass against the new one.
+  `internal/agent` and the whole-repo suite are green, `-race` on tui is green, `go vet`
+  and `gofmt -l .` are clean, Windows/macOS cross-builds succeed, and the `HOME`-redirect
+  machine-independence run is green. Commit `bfaed0d`, `fix(agent): hermes context floor
+  live-verified as 64,000 (not 65,536)`.
+- **cline, raw and through-binary.** `~/.cline` was virgin before the gate (only the npm
+  install's CA-cert bundle present; no `cline auth` was run first). Both `cline -P
+  openrouter -m openai/gpt-4o-mini "Reply with exactly the word OK"` and `orl cline -m
+  openai/gpt-4o-mini -- "…"` returned "OK" immediately with the env key only — no
+  first-run wizard interposed. Installed version 3.0.52 (doc-verified against 3.0.51; no
+  behavior difference found). `~/.cline` before/after: cline created its own `data/` tree
+  (sessions, sqlite dbs, logs, `data/settings/providers.json`) — its own operational
+  bookkeeping. `providers.json` records `lastUsedProvider`/`provider`/`model` but **no
+  `apiKey` field** — grepped both our captured logs and cline's own logs/db/session files
+  for the real key: zero hits everywhere.
+- **Key-leak grep, every gate.** `grep -rl "$KEY"
+  .superpowers/sdd/2026-08-09-phase-4a/live-{pi,hermes,cline}-*.log` — no matches, all
+  eleven log files across the three agents.
+- **Skipped gates (owner scope adjustment, Task 9 brief).** qwen, kimi, and omp were not
+  installed this task and ship doc-verified-only; their live-gate items move to HANDOFF
+  open items via Task 10:
+  - **qwen** — env+flag launch on a virgin `HOME`; the `modelProviders` collision test
+    (craft `~/.qwen/settings.json` with a `modelProviders.openai[]` entry whose `id`
+    equals our slug, confirm `--auth-type openai --model` + env still wins) — this is the
+    item Task 5's owner ruling explicitly deferred to this gate as its decision point,
+    and it remains unresolved pending an install; headless `-p "…"` form.
+  - **kimi** — `KIMI_MODEL_*` one-shot on a virgin `HOME`; `kimi --help | grep -c config`
+    (expected: no `--config` on the new CLI); version-output disambiguation between the
+    legacy Python CLI and the current TypeScript one.
+  - **omp** — `--model openrouter/openai/gpt-4o-mini` selector round-trip unmangled;
+    first-run onboarding behavior.
+  - openclaw and droid gates are out of this task's scope entirely (Task 10+).
+
 ## Sequencing recommendation (for the plan)
 
 Two plans off this one spec:
