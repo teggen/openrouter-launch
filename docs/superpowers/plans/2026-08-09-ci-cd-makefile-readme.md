@@ -6,14 +6,15 @@
 
 **Architecture:** The Makefile owns every command. CI jobs invoke `make <target>` rather than re-spelling commands in YAML, so "green locally" and "green in CI" are the same claim rather than two similar-looking ones. Releases are triggered by a git tag; a shell script (testable, therefore tested) enforces that stable tags are reachable from `main` and `-beta.N` tags from `develop`; GoReleaser derives release-vs-prerelease from the tag itself.
 
-**Tech Stack:** Go 1.24 (floor from `go.mod`), GNU make, GitHub Actions, GoReleaser v2, golangci-lint v2, govulncheck, gosec, actionlint.
+**Tech Stack:** Go 1.25 (floor from `go.mod`; raised from 1.24 during execution — see below), GNU make, GitHub Actions, GoReleaser v2, golangci-lint v2, govulncheck, gosec, actionlint.
 
 **Spec:** `docs/superpowers/specs/2026-08-09-ci-cd-and-readme-design.md` — read it for *why* before changing *what*.
 
 ## Global Constraints
 
 - **Module path:** `github.com/teggen/openrouter-launch`. Released binary name: `openrouter-launch`. Local build name: `orl`.
-- **Go version:** read from `go.mod` (`go 1.24.0`) via `go-version-file: go.mod` — never hardcode a Go version in a workflow.
+- **Go version:** read from `go.mod` via `go-version-file: go.mod` — never hardcode a Go version in a workflow. The directive is **`go 1.25`, minor-only and deliberately without a patch component.** `setup-go` installs exactly what the directive names, so `go 1.25.0` would pin CI to the *oldest* 1.25 patch and reproduce the very problem this raise was meant to fix; the minor-only form resolves to the newest 1.25.x. **Verify the resolved version in the CI log rather than assuming** — the job prints the version it installed.
+- **The floor was raised from 1.24 to 1.25 during execution (owner decision, 2026-08-09).** CI's `audit` job found 27 stdlib vulnerabilities, all `Found in: <pkg>@go1.24`, reachable through `internal/openrouter/client.go`'s HTTP path; ~10 are fixed only in 1.25.x and were never backported, because Go 1.24 is EOL under the two-major policy. Since released binaries are built by CI, the published artifacts would have carried them. No dependency blocks 1.25 (bubbletea needs 1.24.0, cobra 1.15), and all four analysis tools already require 1.25+.
 - **Coverage floor:** 80%. It is defined once, in the Makefile's `COVERAGE_MIN`, and nowhere else.
 - **Build targets:** exactly six — `{linux, darwin, windows} × {amd64, arm64}`.
 - **License:** MIT, `Copyright (c) 2026 teggen`. Use the GitHub handle, never a real name — the owner does not want a full legal name in the repository. This applies to `LICENSE`, the README, and any generated metadata.
