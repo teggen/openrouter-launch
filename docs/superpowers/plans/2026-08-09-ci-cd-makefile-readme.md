@@ -868,6 +868,16 @@ Expected: PASS.
 First, delete the `-X …internal/version.Date={{ .CommitDate }}` line from `.goreleaser.yaml`, run the test — expect FAIL naming the missing ldflag; restore it.
 Then rename `Version` to `Ver` in `internal/version/version.go`, run the test — expect FAIL naming the missing declaration; restore it. (The second edit also breaks the build, which is itself the point: the *first* edit does not, and that is the failure mode this test exists for.)
 
+**Known transient, accepted (found during execution):** `archives.files` lists
+`README.md`, which Task 7 creates. Between this task and Task 7, `make snapshot`
+therefore fails with `globbing failed for pattern README.md: file does not
+exist` — *after* successfully building and archiving all six targets, so the
+config itself is proven. Tasks 5 and 6 do not run `make snapshot`, and Task 7
+Step 4 re-runs it and inspects the archive contents, which is where this
+self-heals. Do not "fix" it here by dropping `README.md` from the list or by
+committing a placeholder README; verify with a temporary file if you need to,
+and delete it before committing.
+
 - [ ] **Step 6: Validate the config and build all six artifacts**
 
 ```bash
