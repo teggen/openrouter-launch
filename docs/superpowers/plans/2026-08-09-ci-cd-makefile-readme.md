@@ -383,7 +383,7 @@ vet: ## Run go vet
 .PHONY: lint
 lint: ## Run golangci-lint (requires v2 — see .golangci.yml)
 	@test -x $(GOBIN)/golangci-lint || { echo "golangci-lint missing — run: make tools"; exit 1; }
-	@$(GOBIN)/golangci-lint version 2>&1 | grep -q 'version v2\.' || { \
+	@$(GOBIN)/golangci-lint version 2>&1 | grep -qE 'version v?2\.' || { \
 	  echo ".golangci.yml uses the v2 schema and the installed binary is v1."; \
 	  echo "Upgrade the binary (make tools) — do NOT downgrade the config,"; \
 	  echo "golangci-lint-action v9 rejects v1 outright."; exit 1; }
