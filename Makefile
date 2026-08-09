@@ -175,19 +175,28 @@ writesites: ## Landmine 6: show every write primitive outside tests
 
 ## ---- tooling and release --------------------------------------------
 
-# GOTOOLCHAIN=auto is required, not optional. All four tools' own go.mod
-# files now declare go >= 1.25 (golangci-lint 1.25.0, gosec 1.25.8,
-# x/vuln 1.25.0, actionlint 1.25.0 — three of them arrived via @latest, so
-# this became true without any change here), while THIS project's floor is
-# go 1.24.0. actions/setup-go injects GOTOOLCHAIN=local, which forbids
-# fetching a newer toolchain, so the audit job died on
+# GOTOOLCHAIN=auto is currently INERT — and must stay anyway.
+#
+# The history: all four tools' own go.mod files declare go >= 1.25
+# (golangci-lint 1.25.0, gosec 1.25.8, x/vuln 1.25.0, actionlint 1.25.0 —
+# three of them arrived there via @latest, so it became true with no change
+# here), while this project's floor was then go 1.24.0. actions/setup-go
+# injects GOTOOLCHAIN=local, which forbids fetching a newer toolchain, so the
+# audit job died on
 #   go: ...golangci-lint@v2.12.2 requires go >= 1.25.0
 #       (running go 1.24.0; GOTOOLCHAIN=local)
-# `auto` lets Go fetch a newer toolchain solely to BUILD these tools. It does
-# not change what builds or tests this project — that stays pinned to the
-# go.mod floor via go-version-file. This is safe against Landmine 25 because
-# the skew that breaks analysis is tool OLDER than the tree; a tool built by a
-# newer toolchain analyses older code fine.
+#
+# The floor has since moved to go 1.25 (a security floor — 1.24 is EOL; see
+# Landmine 25's third clause), which is >= every one of those tools' own
+# requirement. So `auto` no longer has anything to fetch and changes nothing
+# today. Do NOT delete it as dead weight: it is what keeps the next tool that
+# raises its floor to 1.26 from reproducing the exact failure above, and it
+# keeps contributors on an older toolchain able to run `make tools` at all.
+# It cannot drag the project forward — `auto` applies only to BUILDING these
+# tools; what builds and tests this project stays pinned to the go.mod floor
+# via go-version-file. It is also safe against Landmine 25, because the skew
+# that breaks analysis is a tool OLDER than the tree; a tool built by a newer
+# toolchain analyses older code fine.
 .PHONY: tools
 tools: ## Install the pinned lint/security tools with the local toolchain
 	GOTOOLCHAIN=auto go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
@@ -215,5 +224,9 @@ snapshot: ## Build every release artifact locally, publishing nothing
 .PHONY: pre-commit
 pre-commit: clean fmt-check vet lint security test ## The /quality gate
 
+# lint-workflows is in this list because .github/workflows/*.yml is the one
+# file class in this repo with an AUTOMATED editor (Dependabot bumps action
+# SHAs weekly) and, until now, no automated validator: actionlint was pinned
+# and installed by `make tools`, but nothing ever ran it.
 .PHONY: ci
-ci: fmt-check vet lint lint-cross tidy-check cross security test-race cover-check test-isolated ## Everything CI runs
+ci: fmt-check vet lint lint-cross lint-workflows tidy-check cross security test-race cover-check test-isolated ## Everything CI runs

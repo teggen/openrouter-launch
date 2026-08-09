@@ -25,6 +25,20 @@ jobs:
       - run: make fmt-check
       - run: make vet
       - run: make test
+      # Nothing validated .goreleaser.yaml before a tag was pushed: `make ci`
+      # omits release-check and snapshot, ci.yml never runs GoReleaser, and
+      # this job used to stop at `make test`. A config schema break — the
+      # `archives.format` -> `formats` class the spec warns about, and exactly
+      # what Dependabot's weekly action bumps can surface — was therefore
+      # discovered only AFTER the beta had published and main had been
+      # fast-forwarded. Running `check` here refuses the tag before anything
+      # publishes. Same pinned action and version as the release job below;
+      # release.yml's `version:` field is what workflows_test.go asserts
+      # matches the Makefile's GORELEASER_VERSION.
+      - uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7
+        with:
+          version: v2.17.1
+          args: check
 
   release:
     name: release

@@ -9,7 +9,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # NOT `github.ref`. Both `push` and `pull_request` fire for a same-repo PR
+  # branch, and github.ref differs between them (refs/heads/x vs
+  # refs/pull/N/merge), so the two runs landed in different groups and the
+  # full four-job matrix ran twice for every same-repo PR — including every
+  # Dependabot PR. Keying on the PR's head ref when there is one collapses
+  # them into a single cancellable group; `github.ref` remains the fallback
+  # for plain pushes.
+  group: ci-${{ github.event.pull_request.head.ref || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -109,10 +116,14 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows and macOS have never run this suite. They start advisory so a
-    # red result reports the gap instead of blocking every push; remove the
-    # flag per-OS as each goes green. That removal is the definition of done
-    # for HANDOFF's "Windows exit-code propagation is unverified" item.
+    # Windows and macOS both started advisory, so a red result would report
+    # the gap instead of blocking every push, with the flag coming off per-OS
+    # as each went green. macOS has now passed on every run since the first
+    # (the prediction that its Unix-path fixtures would fail was simply
+    # wrong), so its flag is off and a macOS regression is now blocking.
+    # Windows stays advisory: 19 platform-fixture failures, enumerated in
+    # HANDOFF's Open items. Closing those needs platform-aware fixtures, not
+    # launcher changes — that is what makes its flag removable.
     continue-on-error: ${{ matrix.experimental }}
     timeout-minutes: 20
     strategy:
@@ -122,7 +133,7 @@ jobs:
           - os: ubuntu-latest
             experimental: false
           - os: macos-latest
-            experimental: true
+            experimental: false
           - os: windows-latest
             experimental: true
     steps:
