@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-09 · **State:** Phase 4 complete (4a + 4b) — all eight Tier 2 launchers shipped (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five (qwen, kimi, omp, openclaw, droid) doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
+**Last updated:** 2026-08-09 · **State:** **CI/CD phase complete and `v0.1.0` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and its first two public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0` on `main`). Both were verified by extracting the published archive and running `--version`. This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
 
 Read this first if you are picking the project up with no prior context.
 
@@ -34,11 +34,12 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
 | Tests | 432 total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched in 4a or 4b); the growth from 411 (Phase 4a's count) is Phase 4b's `Staged`/openclaw/fork-and-wait/droid work |
-| Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean (including `internal/tui`), Windows/macOS cross-build clean, all confirmed 2026-08-09 (Task 6); the `HOME`-isolated machine-independence run (Landmine 8) also green |
+| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows/macOS advisory), machine-independence; all branches |
-| Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced |
-| Pushed | Yes — `origin/main` is current as of Phase 4b (Task 6 push). Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
+| Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release) and `v0.1.0` (Latest)**, both 2026-08-09, six archives + `checksums.txt` each |
+| Go floor | `go 1.25` — a **security** floor, not a dependency floor (Landmine 25, third clause). Minor-only on purpose so `setup-go` resolves the newest patch; it resolved `go1.25.12` on the first run. |
+| Pushed | Yes — `origin/main` and `origin/develop` are both at the `v0.1.0` commit. Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
 
 Working commands, all smoke-tested against the live API:
 
@@ -738,6 +739,52 @@ open items below. Tier 3 (desktop apps that cannot be pointed at
 OpenRouter) is already registered with stated reasons as of Phase 4a —
 there is no further Tier 3 work, and no Tier 4 exists to plan toward.
 
+## CI/CD, README, and the first release — complete
+
+Shipped: `internal/version` + `--version`, an MIT `LICENSE`, a `README.md`, the
+`Makefile` (the single source of truth — CI invokes its targets rather than
+re-spelling commands in YAML), `.golangci.yml` on the v2 schema,
+`.goreleaser.yaml` for six 64-bit targets, `ci.yml`, `release.yml` with
+`.github/scripts/check-tag-branch.sh`, and Dependabot for gomod and
+github-actions (both targeting `develop`).
+
+**The branch model**: `develop` is the working branch, `main` holds released
+code, and `main` moves only by fast-forward from `develop` when a release is
+cut. Stable tags on `main`, `-beta.N` on `develop`; the guard enforces it by
+*reachability*, since git records no "branch this tag was pushed from".
+
+**Everything below was verified live on 2026-08-09, not assumed:**
+
+- **`v0.1.0-beta.1`** published as a **Pre-release** from `develop`; **`v0.1.0`**
+  published as **Latest** from `main`. Six archives plus `checksums.txt` each.
+  Both verified by downloading the published archive, checking its sha256
+  against `checksums.txt`, and running the extracted binary:
+  `openrouter-launch version 0.1.0 (commit 5ee7ea5f…, go1.25.12)` — a real tag
+  and a real commit, not the `dev`/`none` placeholders.
+- **The stable push created a NEW release** rather than overwriting the beta's
+  (distinct release IDs; the beta is still there, still marked Pre-release).
+- **The branch guard really refuses.** A deliberately mis-cut stable tag,
+  `v0.9.9`, was pushed from `develop`-only history. The `release` job failed at
+  *Enforce the branch model* with `refusing: stable tag 'v0.9.9' is not
+  reachable from 'origin/main'`, **GoReleaser never ran** (the step was
+  skipped), and no release was created. The tag was then deleted from both
+  remote and local. `tagguard_test.go` had already proved the logic in
+  isolation; this proved the workflow wiring.
+- **`GORELEASER_CURRENT_TAG` is load-bearing, and the trap is real.** After the
+  fast-forward, `v0.1.0` and `v0.1.0-beta.1` sit on the same commit, and
+  GoReleaser's own resolution — `git tag --points-at HEAD --sort
+  -version:refname | head -1` — returns **`v0.1.0-beta.1`**, confirmed by
+  running it. Without the pin, pushing the stable tag would have rebuilt and
+  republished the *beta*, with a green workflow. The stable run's log reads
+  `using tags previous=<unknown> current=v0.1.0`. If you ever remove that env
+  var, this is what breaks, and it breaks silently.
+
+**The advisory OS legs**: `test (macos-latest)` and `test (windows-latest)` are
+`continue-on-error`. Confirmed on a real run: a red Windows leg leaves the
+overall run **green** (`conclusion: success`) while the job itself still shows
+as failed — so the signal is visible without blocking. See Open items for what
+Windows actually reported.
+
 ## Open items
 
 - **The interactive TUI was driven by a human for the first time in the
@@ -797,7 +844,17 @@ there is no further Tier 3 work, and no Tier 4 exists to plan toward.
   Closing this means giving those tests platform-aware fixtures, not changing
   the launchers. Until then `test (windows-latest)` stays `continue-on-error`;
   `test (macos-latest)` is now a candidate to have the flag removed, since it
-  is green on its first run.
+  is green on its first run and stayed green on every run since.
+- **Dependabot version updates work; Dependabot security *alerts* are
+  disabled.** The two are separate features. Version updates began the moment
+  `main` gained `.github/dependabot.yml` (it reads config from the *default*
+  branch only) — both ecosystems ran green within minutes of the fast-forward
+  and opened **zero** PRs, i.e. everything is genuinely current, which is a
+  stronger statement than silence. But `GET /repos/…/dependabot/alerts`
+  returns `403 Dependabot alerts are disabled for this repository`. Enabling
+  them is a repo-settings toggle nobody has flipped; `make security`'s
+  govulncheck covers the same ground on every push, so this is a gap in
+  notification, not in detection.
 - **Three of the six Phase 4a launchers ship doc-verified-only; their live
   gates were skipped by owner scope (Task 9), not run and failed:**
   - **qwen** — the `modelProviders` collision is the specific unresolved
