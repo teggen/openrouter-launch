@@ -1761,22 +1761,37 @@ gh run watch
 
 Expected: `quality`, `audit`, `machine-independence`, and `test (ubuntu-latest)` green. `test (macos-latest)` and `test (windows-latest)` may be red — that is the tracked signal, not a blocker.
 
-- [ ] **Step 6: Record what the advisory legs actually reported**
-
-```bash
-gh run view --log-failed > /tmp/ci-first-run.log
-```
-
-Add a short bullet to HANDOFF.md's Open items naming the real failures, for example: *"macOS: green. Windows: N tests fail, all path-related (`/tmp` literals in …)."* Commit as `docs: record the first CI run's Windows/macOS results`. This converts a guess into evidence — it is the whole reason the legs were made advisory instead of skipped.
-
-- [ ] **Step 7: Create develop**
+- [ ] **Step 6: Create develop**
 
 ```bash
 git checkout -b develop
 git push -u origin develop
 gh run watch
 ```
-Expected: CI runs again, same result. `develop` and `main` are identical at this point, which is fine.
+Expected: CI runs again, same result. `develop` and `main` are identical at this
+moment; the next step is what makes them diverge.
+
+- [ ] **Step 7: Record what the advisory legs actually reported — on `develop`**
+
+```bash
+gh run view --log-failed > /tmp/ci-first-run.log
+```
+
+Add a short bullet to HANDOFF.md's Open items naming the real failures, for
+example: *"macOS: green. Windows: N tests fail, all path-related (`/tmp`
+literals in …)."* This converts a guess into evidence — it is the whole reason
+the legs were made advisory rather than skipped.
+
+```bash
+git add HANDOFF.md
+git commit -m "docs: record the first CI run's Windows/macOS results"
+git push origin develop
+```
+
+This commit is deliberately made on `develop` rather than `main`: it is real
+work that belongs on the working branch, **and** it makes `develop` diverge
+from `main`, which is what Step 9's guard check needs. Do not create an empty
+commit for that purpose — this one already serves it.
 
 - [ ] **Step 8: Cut the first beta and verify the prerelease path**
 
@@ -1790,36 +1805,38 @@ Then verify, in this order:
 
 ```bash
 gh release view v0.1.0-beta.1                       # must be marked Pre-release
-gh release download v0.1.0-beta.1 -p '*linux_amd64*'
+cd "$(mktemp -d)"
+gh release download v0.1.0-beta.1 -R teggen/openrouter-launch -p '*linux_amd64*'
 tar -xzf openrouter-launch_*_linux_amd64.tar.gz
 ./openrouter-launch --version
+cd -
 ```
 
 Expected: six archives plus `checksums.txt` attached; the release marked
 **Pre-release**; `--version` reporting `v0.1.0-beta.1` and the real commit SHA —
 **not** `dev`, **not** `none`. A `dev` here means the ldflags never reached the
-binary and the release is not usable, regardless of everything else being green.
+binary and the release is unusable, regardless of everything else being green.
 
 - [ ] **Step 9: Verify the guard refuses a mis-cut tag — on the real workflow**
 
-```bash
-git tag v0.1.0-wrongbranch-test   # a stable-shaped tag would be reachable
-                                  # from main here, so use develop-only history
-```
-
-`develop` and `main` are identical right now, so make them differ first:
+`develop` is now one commit ahead of `main` (Step 7), so a **stable** tag cut
+here is exactly the mistake the guard exists to catch:
 
 ```bash
-git commit -q --allow-empty -m "chore: make develop diverge for the guard test"
-git push origin develop
-git tag v0.9.9
+git tag v0.9.9            # stable-shaped, but on develop-only history
 git push origin v0.9.9
 gh run watch
 ```
 
-Expected: the `release` job **fails** at "Enforce the branch model", with
-`refusing: stable tag 'v0.9.9' is not reachable from 'origin/main'`. Then clean
-up:
+Expected: the `release` job **fails** at "Enforce the branch model" with
+`refusing: stable tag 'v0.9.9' is not reachable from 'origin/main'`, and **no
+GitHub release is created**. Confirm both:
+
+```bash
+gh release view v0.9.9 || echo "correct: no release was created"
+```
+
+Then clean up completely:
 
 ```bash
 git push origin :refs/tags/v0.9.9
@@ -1827,7 +1844,7 @@ git tag -d v0.9.9
 ```
 
 This is the spec's "verified, not assumed" requirement. `tagguard_test.go`
-already proved the logic; this proves the wiring.
+already proved the logic in isolation; this proves the workflow wiring.
 
 - [ ] **Step 10: Cut the stable release**
 
