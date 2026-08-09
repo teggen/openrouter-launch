@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-09 · **State:** **listing tables landed on `develop`, unreleased.** Every listing — `orl agents` (with and without `--all`), `orl profile list`, `orl models`, and the TUI root screen — now renders as a bordered `lipgloss/table` with a dedicated status column (`✓ installed` / `✗ not installed` / `⚠ unsupported` / `⚠ unknown agent`), color auto-detected from the destination writer, and a new shared `internal/ui` package so the CLI and the TUI cannot drift. `agents --all` wraps to 100 columns instead of the 227-column line it used to emit, and the root screen gained a measured scroll window because boxing pushed it past a 24-line terminal (Landmines 30-32). Before that: **CI/CD phase complete and `v0.1.1` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and three public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0`, then `v0.1.1`, both on `main`). All three were verified by extracting the published archive and running `--version`. `v0.1.1` is the code-scanning triage: five gosec permission findings fixed, fourteen dismissed as false positives, **zero open alerts** (Landmine 29). This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
+**Last updated:** 2026-08-09 · **State:** **listing tables landed on `develop`, unreleased.** Every listing — `orl agents` (with and without `--all`), `orl profile list`, `orl models`, and the TUI root screen — now renders as a bordered `lipgloss/table` with a dedicated status column (`✓ installed` / `✗ not installed` / `⚠ unsupported` / `⚠ unknown agent`), color auto-detected from the destination writer, and a new shared `internal/ui` package so the CLI and the TUI cannot drift. `agents --all` wraps to 100 columns instead of the 227-column line it used to emit, the root screen gained a measured scroll window because boxing pushed it past a 24-line terminal, and the TUI model picker renders the same catalog table, shedding columns on a narrow terminal (Landmines 30-34). Before that: **CI/CD phase complete and `v0.1.1` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and three public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0`, then `v0.1.1`, both on `main`). All three were verified by extracting the published archive and running `--version`. `v0.1.1` is the code-scanning triage: five gosec permission findings fixed, fourteen dismissed as false positives, **zero open alerts** (Landmine 29). This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
 
 Read this first if you are picking the project up with no prior context.
 
@@ -33,8 +33,8 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **480** total, verified by both counting methods below. The listing-tables change added 26 — 10 in the new `internal/ui`, 11 in `internal/cli`, 5 in `internal/tui` — and deleted none; it was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
-| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.1% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-09 after the listing-tables change; last confirmed in GitHub Actions at `v0.1.1`. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
+| Tests | **484** total, verified by both counting methods below. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`. It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-09 after the listing-tables change; last confirmed in GitHub Actions at `v0.1.1`. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release), `v0.1.0`, and `v0.1.1` (Latest)**, all 2026-08-09, six archives + `checksums.txt` each. `v0.1.1` went straight to stable with no beta (owner decision — a permissions patch on a green tree), so it is also the first release where only ONE tag sits on the commit and the `GORELEASER_CURRENT_TAG` collision below could not arise |
@@ -729,6 +729,34 @@ three cursor positions. The window is derived from the cursor alone with
 **no stored offset**, which is what keeps `View` a pure function of the
 model — do not add an `offset` field "to match the picker"; the picker
 needs one because its `Update` owns the scroll, and this screen's does not.
+
+**33. The picker's catalog table must never wrap a row, and `tableFrame` is
+measured rather than written as 4.** Two separate traps in one screen.
+*(a)* `ui.Table.MaxWidth` is deliberately unused in `renderCatalog`
+(`internal/tui/picker.go`): it wraps an overlong cell, and a two-line row
+makes the table taller than `listHeight` budgeted for, which pushes the
+title off the top — Landmine 17's outcome again. MODEL is truncated with an
+explicit `…` instead. *(b)* `chromeHeight` is now `nonListChrome +
+tableFrame`, and `tableFrame` is computed at init by rendering a one-row
+table and subtracting the row. Landmine 17 exists because that budget was
+counted by hand and came out one short; the table added four more lines to
+the same budget, so the identical mistake was available a second time.
+Hardcoding `tableFrame` fails `TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights`.
+
+**34. The picker sheds catalog columns on a narrow terminal, and MODEL is
+exempt — the exemption is only observable below ~16 columns.** A bordered
+table cannot be cut mid-line the way the deleted `clampRow` cut a
+preformatted row, and five columns have a floor near 62, so
+`catalogDropOrder` drops COMPLETION/M, PROMPT/M, CONTEXT, TOOLS in that
+order until it fits. The shedding loop stops **as soon as the table fits**,
+which is why `TestPickerShedsCatalogColumnsOnNarrowTerminals` has to probe
+at width **10**: at 40 or even 20 the loop never reaches the end of the
+drop list, so adding MODEL to `catalogDropOrder` passes those widths and
+the test proves nothing. Note also that truncation and shedding both narrow
+the table, so a width assertion alone cannot tell them apart — deleting the
+MODEL truncation just makes the loop drop one more column and still fits.
+`TestPickerTruncatesALongModelIDRatherThanSheddingAColumn` is what pins
+which mechanism runs.
 
 ## Phase 2 — complete
 

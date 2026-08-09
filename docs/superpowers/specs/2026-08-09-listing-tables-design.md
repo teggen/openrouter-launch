@@ -153,6 +153,36 @@ launch time.
 | `profile list` | NAME · AGENT · STATUS · MODEL · ARGS | capped at 100 | Empty-state sentence unchanged |
 | `models` | MODEL · CONTEXT · PROMPT/M · COMPLETION/M · TOOLS | no cap | TOOLS becomes `✓` / blank; 334 rows render fine |
 
+The catalog columns are defined once, in `ui.ModelHeaders` / `ui.ModelCells`
+/ `ui.ModelRole`, and used by both `orl models` and the TUI picker — the
+same drift argument as `AgentStatus`.
+
+### The TUI model picker
+
+The picker renders the same catalog table, with the cursor column the root
+screen uses. Two constraints make it different from every other table here:
+
+- **Rows must stay exactly one line tall**, so `ui.Table.MaxWidth` is
+  deliberately *not* used: it wraps an overlong cell, and a wrapped row
+  would make the table taller than `listHeight` budgeted for, pushing the
+  title off the top of the screen. MODEL is truncated with an explicit `…`
+  instead — what the deleted `clampRow` did for a whole preformatted line.
+- **A table cannot be sliced mid-line.** With all five columns it has a
+  floor around 62 columns, so on a narrower terminal it sheds columns in
+  `catalogDropOrder` — COMPLETION/M, PROMPT/M, CONTEXT, TOOLS — until it
+  fits. MODEL is never dropped: it is the thing being chosen. Measured:
+  100 and 80 keep all five, 60 drops COMPLETION/M, 40 also drops PROMPT/M,
+  10 leaves MODEL alone.
+
+`chromeHeight` becomes `nonListChrome + tableFrame`, where `tableFrame` is
+**measured at init** by rendering a one-row table and subtracting the row,
+not written as `4`. Landmine 17 exists because that budget was counted by
+hand and came out one short; this change adds four more lines to the same
+budget, so the same mistake was available twice.
+
+`modelRow`, `clampRow`, `cursorGutter`, and `selectedStyle` are deleted —
+the table replaces all four.
+
 `agents` carries the cap even though it renders at 94 today. That is the
 point: the cap is what a future long description hits instead of blowing
 the table out, and `TestAgentsOutputStaysNarrow` exists to fail if the cap

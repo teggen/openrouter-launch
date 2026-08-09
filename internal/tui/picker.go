@@ -5,34 +5,52 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 const (
 	// defaultListHeight is used before the first WindowSizeMsg arrives, so
 	// the picker renders something rather than nothing on its first frame.
 	defaultListHeight = 10
-	// chromeHeight is the budget subtracted from the terminal height to get
-	// listHeight(). View() itself writes 8 lines of non-list chrome: the
-	// title line, the blank line under it, the blank line after the list,
-	// the two description-pane lines, the blank line before the status line,
-	// the status line, and the key footer. But View()'s output also ENDS in
-	// "\n", so splitting it the way bubbletea's standard renderer does
-	// (strings.Split on "\n") yields one more element than the newline
-	// count. bubbletea drops from the top of that split when it has more
-	// elements than the terminal is tall — and line 0 is the title/search
-	// line, so an off-by-one here makes the search echo invisible at every
-	// terminal height, not just small ones. chromeHeight must therefore be
-	// 9 (8 lines of chrome + 1 for the trailing newline), not 8: recounting
-	// the literal chrome lines in View() and stopping there reintroduces
-	// this bug. See TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights,
-	// which pins this against the renderer's actual arithmetic.
-	chromeHeight = 9
+	// nonListChrome is the number of lines View() writes outside the model
+	// table: 8 of them — the title line, the blank line under it, the blank
+	// line after the table, the two description-pane lines, the blank line
+	// before the status line, the status line, and the key footer — plus 1,
+	// because View()'s output also ENDS in "\n", so splitting it the way
+	// bubbletea's standard renderer does (strings.Split on "\n") yields one
+	// more element than the newline count. bubbletea drops from the TOP of
+	// that split when it has more elements than the terminal is tall — and
+	// line 0 is the title/search line, so an off-by-one here makes the
+	// search echo invisible at every terminal height, not just small ones.
+	// Recounting the literal chrome lines in View() and stopping at 8
+	// reintroduces that bug. See
+	// TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights, which pins
+	// this against the renderer's actual arithmetic.
+	nonListChrome = 9
 	// descriptionHeight is fixed on purpose. See descriptionLines.
 	descriptionHeight = 2
 )
+
+// tableFrame is what a bordered table costs on top of its rows: a top
+// border, a header row, a header rule, and a bottom border.
+//
+// MEASURED at init, not written as 4. Landmine 17 exists because the chrome
+// above was counted by hand and came out one short, and this change added
+// four more lines to the same budget — the same mistake, twice, would be
+// nobody's fault but ours. Rendering a one-row table and subtracting that
+// row cannot drift from what lipgloss actually draws.
+var tableFrame = lipgloss.Height(theme.Render(ui.Table{
+	Headers: append([]string{" "}, ui.ModelHeaders...),
+	Rows:    [][]string{append([]string{" "}, ui.ModelCells(openrouter.Model{})...)},
+})) - 1
+
+// chromeHeight is the budget subtracted from the terminal height to get
+// listHeight().
+var chromeHeight = nonListChrome + tableFrame
 
 type pickerInput struct {
 	Agent   *agent.Spec
@@ -273,6 +291,136 @@ func (m pickerModel) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+const (
+	// minModelWidth is the floor the MODEL column is never truncated below.
+	minModelWidth = 8
+	// catalogIndent is the two columns modelTable's output is indented by
+	// in View, which count against the terminal width.
+	catalogIndent = 2
+)
+
+// catalogDropOrder lists the catalog columns to shed on a terminal too
+// narrow for all of them, least useful first.
+//
+// A table cannot be cut mid-line the way clampRow cut a preformatted row:
+// its fixed columns impose a floor (about 62 columns with all five), and
+// below that something has to give. Dropping a column is the honest
+// version of "give" — the alternative is letting bubbletea slice the right
+// border off and leave a table that looks broken rather than narrow.
+// MODEL is never dropped: it is the thing being chosen.
+var catalogDropOrder = []int{3, 2, 1, 4} // COMPLETION/M, PROMPT/M, CONTEXT, TOOLS
+
+// modelTable renders the visible window as a bordered table, shedding
+// columns until it fits the terminal.
+func (m pickerModel) modelTable() string {
+	keep := []int{0, 1, 2, 3, 4}
+	out := m.renderCatalog(keep)
+	for _, drop := range catalogDropOrder {
+		if m.width <= 0 || lipgloss.Width(out)+catalogIndent <= m.width {
+			break
+		}
+		keep = without(keep, drop)
+		out = m.renderCatalog(keep)
+	}
+	return out
+}
+
+// renderCatalog draws the visible window using the catalog columns in keep
+// (indices into ui.ModelHeaders), truncating MODEL until the table fits.
+//
+// The table is ALWAYS listHeight rows tall, padded with blank rows, so the
+// description pane and status lines below it do not move as the list
+// shortens — the same fixed-height guarantee descriptionLines gives the
+// pane itself.
+//
+// Rows must stay ONE line tall, which is why ui.Table's MaxWidth is
+// deliberately NOT used here: it wraps an overlong cell, and a wrapped row
+// would make the table taller than listHeight budgeted for, pushing the
+// title off the top of the screen. Truncating with an explicit "…" is what
+// clampRow used to do for the whole line.
+func (m pickerModel) renderCatalog(keep []int) string {
+	headers := []string{" "}
+	for _, c := range keep {
+		headers = append(headers, ui.ModelHeaders[c])
+	}
+
+	h := m.listHeight()
+	rows := make([][]string, 0, h)
+	for i := 0; i < h; i++ {
+		idx := m.offset + i
+		if idx >= len(m.visible) {
+			rows = append(rows, make([]string, len(keep)+1))
+			continue
+		}
+		cells := ui.ModelCells(m.visible[idx])
+		row := []string{cursorCell(idx == m.cursor)}
+		for _, c := range keep {
+			row = append(row, cells[c])
+		}
+		rows = append(rows, row)
+	}
+
+	selected := m.cursor - m.offset
+	render := func() string {
+		return theme.Render(ui.Table{
+			Headers:  headers,
+			Rows:     rows,
+			Emphasis: func(row int) bool { return row == selected },
+			Role: func(_, col int) ui.Role {
+				if col == 0 {
+					return ui.RolePlain
+				}
+				return ui.ModelRole(keep[col-1])
+			},
+		})
+	}
+
+	out := render()
+	if m.width <= 0 {
+		return out
+	}
+	// Shrink MODEL by measuring, rather than deriving the other columns'
+	// widths plus padding plus borders by hand — that arithmetic is what
+	// Landmine 17 is about. MODEL (always column 1, since keep[0] is 0) is
+	// the only variable-width column, so one pass is normally exact; the
+	// loop is a bound, not an algorithm.
+	for i := 0; i < 4; i++ {
+		excess := lipgloss.Width(out) + catalogIndent - m.width
+		widest := widestCell(rows, 1)
+		if excess <= 0 || widest <= minModelWidth {
+			break
+		}
+		budget := max(widest-excess, minModelWidth)
+		for _, row := range rows {
+			row[1] = truncate(row[1], budget)
+		}
+		out = render()
+	}
+	return out
+}
+
+// widestCell is the display width of the widest cell in column col.
+func widestCell(rows [][]string, col int) int {
+	n := 0
+	for _, row := range rows {
+		if w := lipgloss.Width(row[col]); w > n {
+			n = w
+		}
+	}
+	return n
+}
+
+// without returns keep with column drop removed, leaving keep untouched.
+func without(keep []int, drop int) []int {
+	out := make([]int, 0, len(keep))
+	for _, c := range keep {
+		if c != drop {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
 func (m pickerModel) View() string {
 	var b strings.Builder
 
@@ -283,24 +431,7 @@ func (m pickerModel) View() string {
 	b.WriteString(titleStyle.Render("Model for "+name) + "    " +
 		dimStyle.Render("search: "+m.filters.search) + "\n\n")
 
-	// The window is always listHeight rows, padded with blanks, so the panes
-	// below it never move.
-	h := m.listHeight()
-	for i := 0; i < h; i++ {
-		idx := m.offset + i
-		if idx >= len(m.visible) {
-			b.WriteString("\n")
-			continue
-		}
-		row := clampRow(modelRow(m.visible[idx]), m.width)
-		if idx == m.cursor {
-			b.WriteString("  " + cursorGutter(true) + selectedStyle.Render(row) + "\n")
-		} else {
-			b.WriteString("  " + cursorGutter(false) + row + "\n")
-		}
-	}
-
-	b.WriteString("\n")
+	b.WriteString(indent(m.modelTable()) + "\n\n")
 	desc := ""
 	if m.cursor < len(m.visible) {
 		desc = m.visible[m.cursor].Description

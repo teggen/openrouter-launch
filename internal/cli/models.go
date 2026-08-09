@@ -74,34 +74,12 @@ func newModelsCmd(a *app) *cobra.Command {
 func modelsTable(models []openrouter.Model) ui.Table {
 	rows := make([][]string, 0, len(models))
 	for _, m := range models {
-		tools := ""
-		if m.SupportsTools {
-			tools = "✓"
-		}
-		rows = append(rows, []string{
-			m.ID,
-			openrouter.FormatContext(m.ContextLength),
-			// Landmine 4: unknown pricing is never free. FormatPrice
-			// renders it as "?" when PricingUnknown is set, so dropping
-			// that argument would claim a model costs nothing.
-			openrouter.FormatPrice(m.PromptPricePerM, m.PricingUnknown),
-			openrouter.FormatPrice(m.CompletionPricePerM, m.PricingUnknown),
-			tools,
-		})
+		rows = append(rows, ui.ModelCells(m))
 	}
 
 	return ui.Table{
-		Headers: []string{"MODEL", "CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS"},
+		Headers: ui.ModelHeaders,
 		Rows:    rows,
-		Role: func(_, col int) ui.Role {
-			switch col {
-			case 0:
-				return ui.RoleAccent
-			case 4:
-				return ui.RoleOK
-			default:
-				return ui.RolePlain
-			}
-		},
+		Role:    func(_, col int) ui.Role { return ui.ModelRole(col) },
 	}
 }

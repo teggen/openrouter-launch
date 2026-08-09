@@ -5,8 +5,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/lipgloss"
-
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 func TestTruncateLeavesShortStringsAlone(t *testing.T) {
@@ -66,42 +64,11 @@ func TestDescriptionLinesMarksTruncatedText(t *testing.T) {
 	}
 }
 
-func TestModelRowShowsIDContextAndBothPrices(t *testing.T) {
-	got := modelRow(openrouter.Model{
-		ID: "anthropic/claude-opus-4.6", ContextLength: 200000,
-		PromptPricePerM: 15, CompletionPricePerM: 75, SupportsTools: true,
-	})
-	for _, want := range []string{"anthropic/claude-opus-4.6", "200k", "$15.00", "$75.00", "tools"} {
-		if !strings.Contains(got, want) {
-			t.Errorf("modelRow = %q, missing %q", got, want)
-		}
-	}
-}
-
-func TestModelRowOmitsTheToolsMarkerWhenUnsupported(t *testing.T) {
-	got := modelRow(openrouter.Model{ID: "openai/o1-mini", ContextLength: 128000})
-	if strings.Contains(got, "tools") {
-		t.Errorf("modelRow = %q, marks a tool-less model as supporting tools", got)
-	}
-}
-
-// Landmine 4 at the render layer: a model whose price failed to parse is not
-// a free model, and rendering it as "free" would be an actively wrong claim
-// about what a launch costs.
-func TestModelRowNeverRendersUnknownPricingAsFree(t *testing.T) {
-	got := modelRow(openrouter.Model{ID: "x/y", ContextLength: 1000, PricingUnknown: true})
-	if strings.Contains(got, "free") {
-		t.Errorf("modelRow = %q, renders unknown pricing as free", got)
-	}
-	if !strings.Contains(got, "?") {
-		t.Errorf("modelRow = %q, want %q for unknown pricing", got, "?")
-	}
-}
-
-// Both gutters must occupy the same number of display columns so rows
-// do not shift horizontally as the cursor moves through the list.
-func TestCursorGutterWidthIsStable(t *testing.T) {
-	if a, b := lipgloss.Width(cursorGutter(true)), lipgloss.Width(cursorGutter(false)); a != b {
-		t.Errorf("gutter widths differ: selected=%d unselected=%d", a, b)
+// Both markers must occupy the same number of display columns, or the
+// table's first column resizes as the cursor moves and every column to its
+// right shifts with it.
+func TestCursorCellWidthIsStable(t *testing.T) {
+	if a, b := lipgloss.Width(cursorCell(true)), lipgloss.Width(cursorCell(false)); a != b {
+		t.Errorf("marker widths differ: selected=%d unselected=%d", a, b)
 	}
 }

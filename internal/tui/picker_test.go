@@ -10,6 +10,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 // pickerFixture opens the picker over the shared three-model catalog with no
@@ -386,25 +387,111 @@ func TestPickerViewSaysSoWhenNothingMatches(t *testing.T) {
 	}
 }
 
-// modelRow renders 71 columns; with the 2-column indent and 2-column cursor
-// gutter, an unclamped row is 75 columns — wider than a lot of real
-// terminals. clampRow keeps rows within width itself (with an explicit "…"
-// marker) rather than leaning on the renderer, which would truncate silently.
+// The catalog table with all five columns has a floor of about 62 columns,
+// which is wider than a lot of real terminals. modelTable sheds columns and
+// truncates MODEL with an explicit "…" rather than leaning on the renderer,
+// which would slice the right border off and leave a table that looks
+// broken rather than narrow.
 func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
-	const width = 40
-	m := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
-	})
+	for _, width := range []int{40, 60, 80, 100} {
+		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
+			m := newPickerModel(pickerInput{
+				Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+			})
 
-	lines := strings.Split(m.View(), "\n")
-	h := m.listHeight()
-	// Row lines start right after the title line and the blank line under
-	// it (see picker.go's View): index 2 through 2+h-1.
-	for i := 0; i < h; i++ {
-		line := lines[2+i]
-		if got := lipgloss.Width(line); got > width {
-			t.Errorf("row line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
+			// Every line of the TABLE — borders and header included, not
+			// just the model rows, since they overflow just as visibly.
+			//
+			// Scoped to the table on purpose: the key-hints footer is a
+			// fixed 85 columns and overflows a narrow terminal too, but
+			// that predates this screen having a table at all and wrapping
+			// it is a separate decision. Widening this test to the whole
+			// view would fold an unrelated bug into this one's contract.
+			var checked int
+			for i, line := range strings.Split(m.View(), "\n") {
+				if !strings.ContainsAny(line, "╭│├╰") {
+					continue
+				}
+				checked++
+				if got := lipgloss.Width(line); got > width {
+					t.Errorf("table line %d is %d columns wide, want at most %d:\n%q", i, got, width, line)
+				}
+			}
+			if checked == 0 {
+				t.Fatalf("no table lines found, so this asserted nothing:\n%s", m.View())
+			}
+		})
+	}
+}
+
+// Which columns go, and in what order. MODEL must survive every width — it
+// is the thing being chosen — so a "shed everything" implementation that
+// satisfied the width test above still fails here.
+func TestPickerShedsCatalogColumnsOnNarrowTerminals(t *testing.T) {
+	headersAt := func(width int) string {
+		m := newPickerModel(pickerInput{
+			Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+		})
+		for _, line := range strings.Split(m.View(), "\n") {
+			if strings.Contains(line, "MODEL") {
+				return line
+			}
 		}
+		t.Fatalf("no header row at width %d", width)
+		return ""
+	}
+
+	wide := headersAt(100)
+	for _, want := range ui.ModelHeaders {
+		if !strings.Contains(wide, want) {
+			t.Errorf("a 100-column terminal dropped %q: %q", want, wide)
+		}
+	}
+
+	narrow := headersAt(40)
+	if !strings.Contains(narrow, "MODEL") {
+		t.Errorf("MODEL was dropped at 40 columns, leaving nothing to choose between: %q", narrow)
+	}
+	if strings.Contains(narrow, "COMPLETION/M") {
+		t.Errorf("a 40-column terminal kept COMPLETION/M, so nothing was shed: %q", narrow)
+	}
+
+	// 40 columns still fits two of the droppable columns, and even at 20 the
+	// shedding loop stops as soon as the table fits — so neither width can
+	// tell "MODEL is exempt" from "MODEL was never reached". 10 fits
+	// nothing, so the loop runs the drop list to the end and only the
+	// exemption keeps MODEL alive.
+	tiny := headersAt(10)
+	if !strings.Contains(tiny, "MODEL") {
+		t.Errorf("MODEL was dropped once every other column had gone: %q", tiny)
+	}
+	for _, gone := range []string{"CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS"} {
+		if strings.Contains(tiny, gone) {
+			t.Errorf("a 10-column terminal kept %q: %q", gone, tiny)
+		}
+	}
+}
+
+// Truncating MODEL and shedding columns both make a table narrower, so a
+// width assertion alone cannot tell them apart — deleting the truncation
+// just makes the shedding loop drop one more column, and the result still
+// fits. This pins which one happens: at a width that comfortably holds
+// every column, an overlong id must be cut, not cost the user a column.
+func TestPickerTruncatesALongModelIDRatherThanSheddingAColumn(t *testing.T) {
+	m := newPickerModel(pickerInput{
+		Agent:  stubSpec("claude"),
+		Models: []openrouter.Model{{ID: strings.Repeat("very-long-vendor/", 4) + "model", ContextLength: 200000}},
+		Height: 24, Width: 100,
+	})
+	view := m.View()
+
+	for _, want := range ui.ModelHeaders {
+		if !strings.Contains(view, want) {
+			t.Errorf("a long model id cost us the %q column instead of being truncated:\n%s", want, view)
+		}
+	}
+	if !strings.Contains(view, "…") {
+		t.Errorf("the long model id was not truncated, so the table overflows:\n%s", view)
 	}
 }
 

@@ -1,13 +1,11 @@
 package tui
 
 import (
-	"fmt"
 	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
@@ -17,65 +15,22 @@ var (
 	// codes and string assertions keep working without any test setup.
 	theme = ui.NewTheme(os.Stdout)
 
-	titleStyle    = lipgloss.NewStyle().Bold(true)
-	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "249"})
-	selectedStyle = lipgloss.NewStyle().Bold(true)
+	titleStyle  = lipgloss.NewStyle().Bold(true)
+	headerStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "249"})
 	// Sourced from the shared palette so the screens and the tables cannot
 	// drift apart. Same values these carried before, now declared once.
 	dimStyle  = theme.Style(ui.RoleDim)
 	warnStyle = theme.Style(ui.RoleWarn).Bold(true)
 )
 
-// cursorGutter renders the selection marker. Both branches are the same
-// width so rows do not shift horizontally as the cursor moves.
-func cursorGutter(selected bool) string {
-	if selected {
-		return "› "
-	}
-	return "  "
-}
-
-// cursorCell is the same marker for a table's leading column, where the
-// table itself supplies the padding. One column wide either way, so the
-// columns to its right do not shift as the cursor moves.
+// cursorCell renders the selection marker for a table's leading column,
+// where the table itself supplies the padding. One column wide either way,
+// so the columns to its right do not shift as the cursor moves.
 func cursorCell(selected bool) string {
 	if selected {
 		return "›"
 	}
 	return " "
-}
-
-// modelRow renders one catalog row:
-//
-//	anthropic/claude-opus-4.6      200k     $15.00/$75.00    tools
-func modelRow(m openrouter.Model) string {
-	tools := "     "
-	if m.SupportsTools {
-		tools = "tools"
-	}
-	return fmt.Sprintf("%-38s %7s  %8s/%-8s %s",
-		truncate(m.ID, 38),
-		openrouter.FormatContext(m.ContextLength),
-		openrouter.FormatPrice(m.PromptPricePerM, m.PricingUnknown),
-		openrouter.FormatPrice(m.CompletionPricePerM, m.PricingUnknown),
-		tools)
-}
-
-// clampRow truncates row to fit within width, once the 2-column indent and
-// 2-column cursor gutter it is about to be wrapped in are accounted for.
-// This does not lean on the renderer to cut a too-wide row for us — bubbletea
-// already truncates every line to the terminal width on its own — it exists
-// so an overflowing row gets an explicit "…" marker instead of being cut
-// silently. avail <= 0 (width <= 4, including width == 0 before the first
-// WindowSizeMsg, when the terminal size is not yet known) means there is no
-// room left after the indent and gutter, so the row renders at its natural
-// width instead of being clamped to nothing.
-func clampRow(row string, width int) string {
-	avail := width - 4
-	if avail <= 0 {
-		return row
-	}
-	return truncate(row, avail)
 }
 
 // truncate shortens s to at most n runes, marking the cut with an ellipsis.
