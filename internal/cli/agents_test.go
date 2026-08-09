@@ -72,6 +72,62 @@ func TestAgentsCommandShowsNotInstalledWhenBinaryNotFound(t *testing.T) {
 	}
 }
 
+// desktopApps are the Tier 3 specs registered unsupported-with-a-reason.
+// They stay in the registry (and keep their launch subcommand, which is what
+// reports the reason) but no longer appear in the default listing.
+var desktopApps = []string{"chatgpt", "claude-desktop", "hermes-desktop"}
+
+func TestAgentsHidesUnsupportedByDefault(t *testing.T) {
+	h := newHarness(t)
+	got := h.run(t, "agents")
+
+	for _, name := range desktopApps {
+		if strings.Contains(got, name) {
+			t.Errorf("default listing still shows the unsupported agent %q:\n%s", name, got)
+		}
+	}
+	if strings.Contains(got, "unsupported") {
+		t.Errorf("default listing still carries an unsupported status:\n%s", got)
+	}
+	// The filter must remove only the unsupported ones — a filter that
+	// dropped everything would satisfy the assertions above.
+	if !strings.Contains(got, "claude") || !strings.Contains(got, "droid") {
+		t.Errorf("filter removed supported agents too:\n%s", got)
+	}
+}
+
+func TestAgentsAllShowsUnsupportedWithReason(t *testing.T) {
+	h := newHarness(t)
+	got := h.run(t, "agents", "--all")
+
+	for _, name := range desktopApps {
+		if !strings.Contains(got, name) {
+			t.Errorf("--all is missing the unsupported agent %q:\n%s", name, got)
+		}
+	}
+	if !strings.Contains(got, "desktop app authenticates through its own account") {
+		t.Errorf("--all dropped the reason, which is the only thing it exists to show:\n%s", got)
+	}
+}
+
+// TestAgentsOutputStaysNarrow pins the property the change was actually for.
+// tabwriter pads every column to its widest cell, so ONE long status blew
+// all 14 rows out to 150-227 columns. Asserting on the rendered width, not
+// on which rows are present, is what makes this fail if a future long
+// description or status reintroduces the problem by another route.
+// --all is deliberately not bounded: printing the full reason is the whole
+// point of that flag.
+func TestAgentsOutputStaysNarrow(t *testing.T) {
+	const maxWidth = 100
+	h := newHarness(t)
+
+	for _, line := range strings.Split(strings.TrimRight(h.run(t, "agents"), "\n"), "\n") {
+		if len(line) > maxWidth {
+			t.Errorf("line is %d columns, want <= %d:\n%s", len(line), maxWidth, line)
+		}
+	}
+}
+
 func TestRootHasPersistentFlags(t *testing.T) {
 	root := NewRootCmd()
 	for _, name := range []string{"refresh", "yes"} {

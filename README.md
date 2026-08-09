@@ -100,7 +100,9 @@ been run against a real install.
 `chatgpt`, `claude-desktop`, and `hermes-desktop` are registered as
 **unsupported with a stated reason**: a desktop app authenticates through its
 own account, so a launcher cannot inject a provider. Running them reports that
-reason rather than "unknown agent".
+reason rather than "unknown agent". They are **hidden from the default
+listing** — their reason is long enough to widen every column of the table —
+so use `openrouter-launch agents --all` to see them and why.
 
 Run `openrouter-launch agents` for the live list, including what is installed.
 
@@ -145,7 +147,7 @@ Run `openrouter-launch agents` for the live list, including what is installed.
 | `openrouter-launch` | interactive: profiles, agents, model picker |
 | `openrouter-launch <agent>` | pick a model for that agent, then launch |
 | `openrouter-launch <agent> -m <slug> -- <args>` | launch directly, passing `<args>` through |
-| `openrouter-launch agents` | list agents and installation status |
+| `openrouter-launch agents` | list launchable agents and installation status; `--all` adds the unsupported ones with their reason |
 | `openrouter-launch models` | list models; `--tools --free --provider --min-context --max-price` |
 | `openrouter-launch profile add\|list\|launch\|rm\|rename` | named agent+model favorites |
 | `openrouter-launch --refresh …` | bypass the cached catalog |

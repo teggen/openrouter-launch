@@ -10,7 +10,9 @@ import (
 )
 
 func newAgentsCmd() *cobra.Command {
-	return &cobra.Command{
+	var all bool
+
+	cmd := &cobra.Command{
 		Use:   "agents",
 		Short: "List the agents this tool can launch",
 		Args:  cobra.NoArgs,
@@ -19,6 +21,16 @@ func newAgentsCmd() *cobra.Command {
 			fmt.Fprintln(w, "NAME\tAGENT\tSTATUS\tDESCRIPTION")
 
 			for _, spec := range agent.List() {
+				// Unsupported agents (the Tier 3 desktop apps) are hidden by
+				// default. Not for tidiness: tabwriter pads every column to
+				// its widest cell, so their ~99-character reason widened the
+				// STATUS column of all 14 rows and pushed the table to 227
+				// columns. They stay registered, and `openrouter-launch
+				// <agent>` still reports the reason — this hides them from
+				// the listing, it does not un-register them.
+				if !spec.Status.Supported && !all {
+					continue
+				}
 				status := "not installed"
 				switch {
 				case !spec.Status.Supported:
@@ -32,4 +44,8 @@ func newAgentsCmd() *cobra.Command {
 			return w.Flush()
 		},
 	}
+
+	cmd.Flags().BoolVar(&all, "all", false,
+		"include agents that cannot be pointed at OpenRouter, with the reason")
+	return cmd
 }

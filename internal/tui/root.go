@@ -82,10 +82,16 @@ func buildRootRows(in rootInput) []rootRow {
 
 	rows = append(rows, rootRow{kind: rowHeader, label: "Agents"})
 	for _, spec := range in.Agents {
+		// An agent that cannot be pointed at OpenRouter is not listed at
+		// all. This screen exists to pick something to launch, so an
+		// unselectable row carrying a long reason was noise; the reason is
+		// still reported by `openrouter-launch <agent>`, which reaches the
+		// UnsupportedAgentError notice through a path this does not touch.
+		if !spec.Status.Supported {
+			continue
+		}
 		row := rootRow{kind: rowAgent, label: spec.Launcher.DisplayName(), agent: spec}
 		switch {
-		case !spec.Status.Supported:
-			row.detail = "unsupported: " + spec.Status.Reason
 		case in.Installed != nil && !in.Installed(spec):
 			// Still selectable: Plan checks the empty model before the
 			// install guard so a user with nothing installed can still

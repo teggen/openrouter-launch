@@ -33,7 +33,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six zero-touch Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **452** total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched since). 448 before the 2026-08-09 code-scanning triage, which added 4 permission tests (config dir, cache file+dir, staged-file dir, `~/.factory`). Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Tests | **454** total, 168 of them in `internal/tui`. 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
@@ -44,7 +44,8 @@ principle** and it is the design's central claim — see Landmine 6.
 Working commands, all smoke-tested against the live API:
 
 ```bash
-openrouter-launch agents
+openrouter-launch agents          # launchable agents only
+openrouter-launch agents --all    # ...plus the unsupported desktop apps, with reasons
 openrouter-launch models --tools --free --provider anthropic
 openrouter-launch models --min-context 200000 --max-price 5
 openrouter-launch claude -m anthropic/claude-opus-4.6 -- --resume
@@ -778,6 +779,21 @@ registered with a stated reason. **Owner decision:** `copilot`, `pool`, and
 `vscode` — though listed in the main spec's Tier 3 table — are deliberately
 **not** registered; `openrouter-launch copilot` (etc.) reporting "unknown
 agent" is accepted behavior, not a gap to fill.
+
+**They are registered but no longer *listed* (owner decision, 2026-08-09).**
+`agents` and the TUI root screen both hide `!Status.Supported` specs; `agents
+--all` shows them with the reason. This is presentation only — the specs, their
+launch subcommands, and the `UnsupportedAgentError` notice are all untouched, so
+`openrouter-launch chatgpt` still explains itself. The reason to hide them was
+mechanical, not cosmetic: `agents` renders through `tabwriter`, which pads every
+column to its widest cell, so the three ~99-character reasons stretched the
+STATUS column of **all 14 rows** and pushed the table to 227 columns. Two TUI
+tests were deleted rather than adapted — `TestRootViewShowsUnsupportedAgentsWithTheirReason`
+asserted the exact inverse of the new behavior, and `TestRootCursorSkipsUnsupportedAgents`
+would have kept passing for the wrong reason (with the row filtered out, Down
+still lands on the next agent, so it could no longer fail). `TestAgentsOutputStaysNarrow`
+now pins the rendered width rather than the row list, so a future long
+description reintroduces the failure by any route.
 
 **Followed by Plan 4b** (`docs/superpowers/plans/2026-08-09-phase-4b-configwriter-openclaw-droid.md`),
 which shipped `openclaw` and `droid` and closed Tier 2 out entirely — see

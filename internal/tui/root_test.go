@@ -12,8 +12,12 @@ import (
 
 func allInstalled(*agent.Spec) bool { return true }
 
-// threeAgents is deliberately ordered supported / unsupported / supported so
-// that cursor movement has an unselectable row to step over in the middle.
+// threeAgents holds an unsupported agent in the MIDDLE on purpose: it is
+// what TestRootOmitsUnsupportedAgents has to omit, and putting it between
+// two supported agents means a filter that dropped the wrong element (an
+// off-by-one on the index, say) changes which agents survive rather than
+// only how many. It used to be positioned so cursor movement had an
+// unselectable row to step over; that row no longer renders.
 func threeAgents() []*agent.Spec {
 	return []*agent.Spec{
 		stubSpec("claude"),
@@ -65,18 +69,30 @@ func TestRootCursorSkipsSectionHeaders(t *testing.T) {
 	}
 }
 
-// An agent that cannot be pointed at OpenRouter is shown with its reason but
-// must not be selectable, so the cursor steps over it.
-func TestRootCursorSkipsUnsupportedAgents(t *testing.T) {
+// An agent that cannot be pointed at OpenRouter is not listed at all: the
+// root screen exists to pick something to launch, and its reason is still
+// reported by `openrouter-launch <agent>`, whose subcommand is unaffected.
+//
+// This replaces TestRootCursorSkipsUnsupportedAgents, which asserted the
+// cursor stepped OVER the unsupported row. That assertion survives the
+// filter unchanged — with copilot gone, Down still lands on codex — so
+// keeping it would have left a test that passes for the wrong reason. The
+// assertion below cannot: it fails on the old code, where the row renders.
+func TestRootOmitsUnsupportedAgents(t *testing.T) {
 	m := rootFixture(nil, "")
-	m = press(t, m, typeKey(tea.KeyDown), typeKey(tea.KeyEnter))
+	got := m.View()
 
-	if m.choice.Agent == nil {
-		t.Fatal("no agent selected")
+	if strings.Contains(got, "copilot") {
+		t.Errorf("View lists the unsupported agent:\n%s", got)
 	}
-	if m.choice.Agent.Name != "codex" {
-		t.Errorf("selected %q, want codex — the cursor stopped on the unsupported agent",
-			m.choice.Agent.Name)
+	if strings.Contains(got, "cannot be pointed at a custom endpoint") {
+		t.Errorf("View still renders the unsupported reason:\n%s", got)
+	}
+	// The filter must drop only the unsupported one.
+	for _, want := range []string{"claude", "codex"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("View dropped the supported agent %q:\n%s", want, got)
+		}
 	}
 }
 
@@ -167,13 +183,6 @@ func TestRootCursorStopsAtBothEnds(t *testing.T) {
 	m2 = press(t, m2, typeKey(tea.KeyDown), typeKey(tea.KeyEnter))
 	if m2.choice.Agent == nil || m2.choice.Agent.Name != "codex" {
 		t.Errorf("down past the bottom selected %v, want the last agent", m2.choice.Agent)
-	}
-}
-
-func TestRootViewShowsUnsupportedAgentsWithTheirReason(t *testing.T) {
-	got := rootFixture(nil, "").View()
-	if !strings.Contains(got, "cannot be pointed at a custom endpoint") {
-		t.Errorf("View = %q, does not explain why copilot is unavailable", got)
 	}
 }
 
