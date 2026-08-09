@@ -669,6 +669,17 @@ them in `make security` output is expected, not a regression.
 | G703 | 2 | `hermes.go:65`, `qwen.go:68` | `os.Stat` on `findPath` candidates built from `$HOME`/`$APPDATA`/`$LOCALAPPDATA`. The "taint" is the user's own environment. |
 | G204 | 2 | `exec_unix.go:15`, `exec_wait.go:21` | Spawning the agent the user chose with the args they passed **is the product**. The real control here is `ExecArgs`' env dedup (Landmine 3). |
 
+**Expect the Security tab to keep showing the five *fixed* alerts as open
+until the next release.** An alert stays open while it is present on any
+analysed ref. `develop` was rescanned at `9904f2e` and reports 14 results —
+`?ref=refs/heads/develop&state=open` returns **zero** — but `main`'s newest
+analysis is still the `v0.1.0` commit `5ee7ea5`, which contains the old
+code, and under this project's branch model `main` moves only by
+fast-forward when a release is cut. The five close by themselves the first
+time CI scans a `main` that includes `e2c6a00`. Query with the `ref`
+parameter before concluding a fix did not land; the tab's default view
+aggregates across refs and will mislead you here.
+
 Two of these are actively dangerous to "resolve": silencing G117 would mean
 not storing the user's key, and silencing G204 would mean not launching an
 agent. `#nosec` was rejected as the mechanism because the tree has none
