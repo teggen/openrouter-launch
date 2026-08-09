@@ -1519,13 +1519,14 @@ jobs:
 
 - [ ] **Step 7: Extend the pin tests to cover release.yml**
 
-In `workflows_test.go`, change the loop in `TestWorkflowActionsArePinnedToShas` to:
+**`TestWorkflowActionsArePinnedToShas` already covers `release.yml` — do not edit
+it.** Task 5's review replaced its hardcoded one-element file list with
+`filepath.Glob(".github/workflows/*.yml")` precisely so a workflow added later
+would be covered without anyone remembering to extend a slice. Confirm that by
+running it and watching it fail if you temporarily un-pin an action in your new
+`release.yml`; that is this step's real work.
 
-```go
-	for _, path := range []string{".github/workflows/ci.yml", ".github/workflows/release.yml"} {
-```
-
-and add:
+Then add:
 
 ```go
 func TestReleaseWorkflowPinsTheMakefilesGoreleaserVersion(t *testing.T) {
