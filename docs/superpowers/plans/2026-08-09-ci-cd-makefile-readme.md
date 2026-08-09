@@ -1398,7 +1398,12 @@ fi
 # Any hyphen after the version core is a semver prerelease. This matches the
 # same tags GoReleaser's `prerelease: auto` treats as prereleases, so the
 # guard and the publisher cannot disagree.
-if [[ "$tag" == *-* ]]; then
+# Strip semver build metadata BEFORE looking for a prerelease hyphen: '+build-5'
+# legally contains a hyphen while being a STABLE version, and GoReleaser (which
+# parses with Masterminds/semver) would publish it as stable. Without this the
+# guard calls it a prerelease and would let it through on develop.
+core="${tag%%+*}"
+if [[ "$core" == *-* ]]; then
   want="$pre_branch"
   kind="prerelease"
 else
@@ -1451,6 +1456,7 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -1467,6 +1473,7 @@ jobs:
     name: release
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -1490,6 +1497,17 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GORELEASER_CURRENT_TAG is NOT redundant with the tag that triggered
+          # this workflow. GoReleaser never reads GITHUB_REF/GITHUB_REF_NAME; it
+          # resolves its own tag as
+          #     git tag --points-at HEAD --sort -version:refname | head -1
+          # and this project's release flow puts TWO tags on one commit: the
+          # beta is cut on develop, develop is fast-forwarded into main, then
+          # the stable tag is cut on the same commit. That sort puts
+          # v0.1.0-beta.1 ahead of v0.1.0 — so pushing the stable tag would
+          # rebuild and republish the BETA release, with a green workflow.
+          # Measured, not theorised. This pins publisher to trigger.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # Added after Task 4's review. goreleaser_test.go pins the ldflag import
       # paths, but it is a raw substring match over the YAML with no structural
@@ -1510,9 +1528,20 @@ jobs:
               echo "the ldflags never reached it — see .goreleaser.yaml's builds.ldflags" >&2
               exit 1 ;;
           esac
+          # Anchored with a trailing space: --version prints
+          #   openrouter-launch version <ver> (commit <sha>, ...
+          # so an unanchored match lets 0.1.0 be satisfied by 0.1.0-beta.1 —
+          # exactly the collision GORELEASER_CURRENT_TAG above prevents, and
+          # this is the check that must not fail to notice it.
           case "$got" in
-            *"${GITHUB_REF_NAME#v}"*) echo "ok: reports its own tag" ;;
+            *"${GITHUB_REF_NAME#v} "*) echo "ok: reports its own tag" ;;
             *) echo "::error::binary reports '$got', which does not contain tag ${GITHUB_REF_NAME}" >&2
+               exit 1 ;;
+          esac
+          # The spec's definition of done requires the commit too, not just the tag.
+          case "$got" in
+            *"$GITHUB_SHA"*) echo "ok: reports its own commit" ;;
+            *) echo "::error::binary reports '$got', which does not contain commit $GITHUB_SHA" >&2
                exit 1 ;;
           esac
 ```
@@ -1529,14 +1558,19 @@ running it and watching it fail if you temporarily un-pin an action in your new
 Then add:
 
 ```go
+// Anchored to the `version:` field for the same two reasons its golangci-lint
+// sibling is: v2.17.1 is a PREFIX of v2.17.10, and a bare substring is also
+// satisfied by the string surviving in a comment after the whole goreleaser
+// step is deleted. Both holes were demonstrated on the real tree.
 func TestReleaseWorkflowPinsTheMakefilesGoreleaserVersion(t *testing.T) {
 	want := makefileVar(t, "GORELEASER_VERSION")
 	wf, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatalf("reading release.yml: %v", err)
 	}
-	if !strings.Contains(string(wf), want) {
-		t.Errorf("release.yml does not pin goreleaser %s (the Makefile's GORELEASER_VERSION); `make snapshot` and the published release would be built by different versions", want)
+	re := regexp.MustCompile(`(?m)^\s*version:\s*` + regexp.QuoteMeta(want) + `\s*$`)
+	if !re.Match(wf) {
+		t.Errorf("release.yml has no `version: %s` field pinning goreleaser (the Makefile's GORELEASER_VERSION); `make snapshot` and the published release would be built by different versions", want)
 	}
 }
 ```
