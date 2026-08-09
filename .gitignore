@@ -3,4 +3,5 @@ openrouter-launch
 /coverage.out
 /coverage.html
 /gosec.sarif
+/gosec.log
 /dist/

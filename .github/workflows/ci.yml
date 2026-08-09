@@ -64,12 +64,32 @@ jobs:
       # finds nothing, and -no-fail additionally swallows a failed SSA build
       # (it exits 0 having analysed nothing). Combined with continue-on-error
       # on the upload, that chain can go green having performed zero security
-      # analysis — masked today only by the tree happening to have ~30
+      # analysis — masked today only by the tree happening to have ~19
       # findings. Without -quiet the SARIF is written unconditionally, so a
       # missing file becomes a real signal that the artifact step can catch.
+      #
+      # The log is teed because it is the ONLY place a failed analysis leaves
+      # a trace: gosec logs "no ssa result", writes a valid SARIF anyway, and
+      # exits 0. The next step reads this file.
       - name: gosec SARIF report
         if: always()
-        run: $(go env GOPATH)/bin/gosec -no-fail -fmt sarif -out gosec.sarif ./...
+        # Explicit, and load-bearing: `pipefail` is what makes a missing or
+        # crashing gosec fail this step instead of being swallowed by tee's
+        # exit status. Same trap as the coverage step's below.
+        shell: bash
+        run: |
+          set -euo pipefail
+          "$(go env GOPATH)/bin/gosec" -no-fail -fmt sarif -out gosec.sarif ./... 2>&1 | tee gosec.log
+      # `if-no-files-found: error` below closed "gosec wrote no file at all".
+      # This closes "gosec wrote a file from an analysis that never ran" — a
+      # package with type errors yields exit 0 and a structurally valid SARIF
+      # holding `"results": []`, which satisfies every other control in this
+      # chain. The script deliberately does NOT look at the result count, so
+      # genuine findings stay advisory and a genuinely clean tree stays green;
+      # gosecguard_test.go pins both directions.
+      - name: gosec must have actually analysed the tree
+        if: always()
+        run: .github/scripts/check-gosec-analysis.sh gosec.log gosec.sarif
       - name: Upload SARIF to the Security tab
         if: always()
         continue-on-error: true

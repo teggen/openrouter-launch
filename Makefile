@@ -103,12 +103,22 @@ lint-cross: ## Lint the build-tagged files the default GOOS never sees
 
 ## ---- security --------------------------------------------------------
 
+# gosec's `test -x` guard is NOT redundant with the `-` prefix on its recipe
+# line. The `-` tells make to ignore that line's exit status, which is what
+# keeps gosec's ~19 findings advisory — but it ignores "No such file or
+# directory" just as happily. With gosec uninstalled this target printed
+#   make: /home/martin/go/bin/gosec: No such file or directory
+#   make: [Makefile:112: security] Error 127 (ignored)
+# and exited 0, so `make security` reported success having run no gosec at
+# all. gosec was the only tool here without the presence guard its three
+# siblings have. Measured, not theorised.
 .PHONY: security
 security: ## govulncheck + go mod verify (blocking); gosec (advisory)
 	@test -x $(GOBIN)/govulncheck || { echo "govulncheck missing — run: make tools"; exit 1; }
 	$(GOBIN)/govulncheck ./...
 	go mod verify
 	@echo "--- gosec (advisory: findings do not fail this target) ---"
+	@test -x $(GOBIN)/gosec || { echo "gosec missing — run: make tools"; exit 1; }
 	-@$(GOBIN)/gosec -quiet ./...
 
 ## ---- test ------------------------------------------------------------
