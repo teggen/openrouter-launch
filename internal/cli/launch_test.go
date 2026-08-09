@@ -69,6 +69,34 @@ func TestLaunchPassesExtraArgsAfterDoubleDash(t *testing.T) {
 	}
 }
 
+// TestLaunchUnsupportedAgentRefusesWithRegistryReason pins the seam between
+// the registry and newLaunchCmds: every registered spec, supported or not,
+// gets a subcommand (see newLaunchCmds's comment), and an unsupported one
+// refuses through the planner's UnsupportedAgentError rather than cobra
+// failing to recognize the subcommand at all. If a refactor ever taught
+// newLaunchCmds to skip unsupported specs, "chatgpt" would silently degrade
+// to cobra's "unknown command" error - same exit code, misleading message,
+// and no test would catch it without this one.
+func TestLaunchUnsupportedAgentRefusesWithRegistryReason(t *testing.T) {
+	h := newHarness(t)
+
+	spec, err := agent.Lookup("chatgpt")
+	if err != nil {
+		t.Fatalf("Lookup: %v", err)
+	}
+
+	_, execErr := h.exec("chatgpt", "-m", "some/model")
+	if execErr == nil {
+		t.Fatal("expected an error for an unsupported agent")
+	}
+	if !strings.Contains(execErr.Error(), spec.Status.Reason) {
+		t.Errorf("error should contain the registry's reason %q, got: %v", spec.Status.Reason, execErr)
+	}
+	if strings.Contains(execErr.Error(), "unknown command") {
+		t.Errorf("chatgpt must be a real subcommand, not cobra's unknown-command fallback, got: %v", execErr)
+	}
+}
+
 func TestLaunchRecordsLastSelection(t *testing.T) {
 	h := setupLaunch(t)
 	h.run(t, "claude", "-m", "anthropic/claude-opus-4.6")
