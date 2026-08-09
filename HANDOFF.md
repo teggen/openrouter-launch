@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-09 · **State:** **CI/CD phase complete and `v0.1.0` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and its first two public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0` on `main`). Both were verified by extracting the published archive and running `--version`. This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
+**Last updated:** 2026-08-09 · **State:** **CI/CD phase complete and `v0.1.1` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and three public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0`, then `v0.1.1`, both on `main`). All three were verified by extracting the published archive and running `--version`. `v0.1.1` is the code-scanning triage: five gosec permission findings fixed, fourteen dismissed as false positives, **zero open alerts** (Landmine 29). This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
 
 Read this first if you are picking the project up with no prior context.
 
@@ -37,9 +37,9 @@ principle** and it is the design's central claim — see Landmine 6.
 | Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.4% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally and in GitHub Actions, 2026-08-09. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows advisory; macOS blocking since the final fix wave), machine-independence; all branches |
-| Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release) and `v0.1.0` (Latest)**, both 2026-08-09, six archives + `checksums.txt` each |
+| Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release), `v0.1.0`, and `v0.1.1` (Latest)**, all 2026-08-09, six archives + `checksums.txt` each. `v0.1.1` went straight to stable with no beta (owner decision — a permissions patch on a green tree), so it is also the first release where only ONE tag sits on the commit and the `GORELEASER_CURRENT_TAG` collision below could not arise |
 | Go floor | `go 1.25` — a **security** floor, not a dependency floor (Landmine 25, third clause). Minor-only on purpose so `setup-go` resolves the newest patch; it resolved `go1.25.12` on the first run. |
-| Pushed | Yes, both branches. `origin/main` is at the `v0.1.0` commit (`5ee7ea5`); `origin/develop` is **ahead of it** — the final review's fix wave and the residual round landed on `develop` after the release, so it carries unreleased work destined for the next tag. Check `git status -sb` and `git log --oneline main..develop` rather than trusting this row; it has been wrong before, and it went stale again within an hour of being written. |
+| Pushed | Yes, both branches. `origin/main` is at the `v0.1.1` commit `c05c7b1`; `origin/develop` is **one commit ahead**, and that one commit is this handoff update itself — the fast-forward left the branches level and then writing this row un-levelled them, which is the whole reason this row keeps going stale. No unreleased *code* is outstanding. Check `git status -sb` and `git log --oneline main..develop` rather than trusting this row; it has been wrong before, and it went stale twice within an hour of being written. |
 
 Working commands, all smoke-tested against the live API:
 
@@ -669,16 +669,17 @@ them in `make security` output is expected, not a regression.
 | G703 | 2 | `hermes.go:65`, `qwen.go:68` | `os.Stat` on `findPath` candidates built from `$HOME`/`$APPDATA`/`$LOCALAPPDATA`. The "taint" is the user's own environment. |
 | G204 | 2 | `exec_unix.go:15`, `exec_wait.go:21` | Spawning the agent the user chose with the args they passed **is the product**. The real control here is `ExecArgs`' env dedup (Landmine 3). |
 
-**Expect the Security tab to keep showing the five *fixed* alerts as open
-until the next release.** An alert stays open while it is present on any
-analysed ref. `develop` was rescanned at `9904f2e` and reports 14 results —
-`?ref=refs/heads/develop&state=open` returns **zero** — but `main`'s newest
-analysis is still the `v0.1.0` commit `5ee7ea5`, which contains the old
-code, and under this project's branch model `main` moves only by
-fast-forward when a release is cut. The five close by themselves the first
-time CI scans a `main` that includes `e2c6a00`. Query with the `ref`
-parameter before concluding a fix did not land; the tab's default view
-aggregates across refs and will mislead you here.
+**An alert stays open while it is present on any analysed ref — query with
+`ref` before concluding a fix did not land.** This was observed, not
+theorised. After the fix landed on `develop`, `?ref=refs/heads/develop&state=open`
+returned **zero** while the Security tab's default cross-ref view still
+showed all five as open, because `main`'s newest analysis was the `v0.1.0`
+commit `5ee7ea5`, which still contained the old code. Under this project's
+branch model `main` moves only by fast-forward when a release is cut, so
+the gap lasted until `v0.1.1`. The moment CI rescanned `main` at `c05c7b1`
+(analysis: 14 results) all five flipped to **fixed** on their own, with no
+manual action. Current state: **zero open alerts**, 14 dismissed, 5 fixed.
+Expect the same lag the next time a fix lands on `develop`.
 
 Two of these are actively dangerous to "resolve": silencing G117 would mean
 not storing the user's key, and silencing G204 would mean not launching an
@@ -875,6 +876,17 @@ cut. Stable tags on `main`, `-beta.N` on `develop`; the guard enforces it by
   and a real commit, not the `dev`/`none` placeholders.
 - **The stable push created a NEW release** rather than overwriting the beta's
   (distinct release IDs; the beta is still there, still marked Pre-release).
+- **`v0.1.1`** (release id `367550004`, distinct from `v0.1.0`'s `367530782`)
+  published as **Latest** from `main` at `c05c7b1`, seven assets, verified the
+  same way: `sha256sum -c checksums.txt` OK, and the extracted binary reports
+  `openrouter-launch version 0.1.1 (commit c05c7b1e…, go1.25.12)`. It went
+  **straight to stable with no beta** — so `git tag --points-at` has a single
+  tag and the `GORELEASER_CURRENT_TAG` collision below stayed dormant; that
+  pin is still load-bearing for any release that does cut a beta first. The
+  released binary was additionally run against the live catalog with
+  `XDG_CACHE_HOME` redirected, confirming the shipped artifact really creates
+  its cache dir `700` and `models.json` `600` — the Landmine 29 fix proven in
+  the published binary, not only in tests.
 - **The branch guard really refuses.** A deliberately mis-cut stable tag,
   `v0.9.9`, was pushed from `develop`-only history. The `release` job failed at
   *Enforce the branch model* with `refusing: stable tag 'v0.9.9' is not
