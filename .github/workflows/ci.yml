@@ -16,6 +16,11 @@ jobs:
   quality:
     name: quality
     runs-on: ubuntu-latest
+    # Explicit, not GitHub's 360-minute default: a hung test (e.g. the TUI's
+    # headless bubbletea programs, which fail by hanging rather than
+    # asserting per Landmine 16) would otherwise burn a run for hours before
+    # anyone notices.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -39,6 +44,7 @@ jobs:
   audit:
     name: audit
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       security-events: write
@@ -54,9 +60,16 @@ jobs:
         run: make tools
       - name: govulncheck, go mod verify, advisory gosec
         run: make security
+      # NOT `-quiet`: with -quiet, gosec writes NO report file at all when it
+      # finds nothing, and -no-fail additionally swallows a failed SSA build
+      # (it exits 0 having analysed nothing). Combined with continue-on-error
+      # on the upload, that chain can go green having performed zero security
+      # analysis — masked today only by the tree happening to have ~30
+      # findings. Without -quiet the SARIF is written unconditionally, so a
+      # missing file becomes a real signal that the artifact step can catch.
       - name: gosec SARIF report
         if: always()
-        run: $(go env GOPATH)/bin/gosec -quiet -no-fail -fmt sarif -out gosec.sarif ./...
+        run: $(go env GOPATH)/bin/gosec -no-fail -fmt sarif -out gosec.sarif ./...
       - name: Upload SARIF to the Security tab
         if: always()
         continue-on-error: true
@@ -69,6 +82,9 @@ jobs:
         with:
           name: gosec-sarif
           path: gosec.sarif
+          # The one step in this chain that is NOT softened, so it is where a
+          # gosec that analysed nothing actually surfaces.
+          if-no-files-found: error
 
   test:
     name: test (${{ matrix.os }})
@@ -78,6 +94,7 @@ jobs:
     # flag per-OS as each goes green. That removal is the definition of done
     # for HANDOFF's "Windows exit-code propagation is unverified" item.
     continue-on-error: ${{ matrix.experimental }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -103,14 +120,21 @@ jobs:
         run: make test-race
       - name: Coverage
         if: matrix.os == 'ubuntu-latest'
+        # `shell: bash` is LOAD-BEARING and must not be dropped as noise. With
+        # no `shell:` key, GitHub runs `bash -e {0}` — WITHOUT pipefail — so
+        # `make cover-check | tee` would exit with tee's status, i.e. 0, and
+        # the 80% floor would never fail a run. The "below the floor" message
+        # would appear in the job summary while the step, job, and run all went
+        # green. Writing `shell: bash` explicitly is what selects
+        # `bash --noprofile --norc -eo pipefail {0}`.
+        shell: bash
         run: |
           echo '## Coverage' >> "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-          make cover-check 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          # One make invocation, not two: separate calls re-run the `cover`
+          # prerequisite and with it the whole suite a second time.
+          make cover-check cover-html 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Coverage HTML
-        if: matrix.os == 'ubuntu-latest'
-        run: make cover-html
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         if: matrix.os == 'ubuntu-latest'
         with:
@@ -123,6 +147,7 @@ jobs:
     # name is the point.
     name: machine-independence (Landmine 8)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7

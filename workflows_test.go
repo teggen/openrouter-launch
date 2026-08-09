@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -26,14 +27,20 @@ func makefileVar(t *testing.T, name string) string {
 	return string(m[1])
 }
 
+// Anchored to the actual `version:` field, not a bare substring search. A
+// plain strings.Contains passes for two wrong reasons: v2.12.2 is a PREFIX of
+// v2.12.25, so a genuinely divergent pin satisfies it; and the string
+// appearing anywhere — a comment, or a leftover after the whole
+// golangci-lint-action step is deleted — satisfies it too.
 func TestCIPinsTheMakefilesGolangciLintVersion(t *testing.T) {
 	want := makefileVar(t, "GOLANGCI_VERSION")
 	ci, err := os.ReadFile(".github/workflows/ci.yml")
 	if err != nil {
 		t.Fatalf("reading ci.yml: %v", err)
 	}
-	if !strings.Contains(string(ci), want) {
-		t.Errorf("ci.yml does not pin golangci-lint %s (the Makefile's GOLANGCI_VERSION); local and CI would run different linters", want)
+	re := regexp.MustCompile(`(?m)^\s*version:\s*` + regexp.QuoteMeta(want) + `\s*$`)
+	if !re.Match(ci) {
+		t.Errorf("ci.yml has no `version: %s` field pinning golangci-lint (the Makefile's GOLANGCI_VERSION); local and CI would run different linters", want)
 	}
 }
 
@@ -45,7 +52,17 @@ func TestWorkflowActionsArePinnedToShas(t *testing.T) {
 	uses := regexp.MustCompile(`(?m)uses:\s+([^\s@]+)@(\S+)`)
 	sha := regexp.MustCompile(`^[0-9a-f]{40}$`)
 
-	for _, path := range []string{".github/workflows/ci.yml"} {
+	// Globbed rather than listed, so a workflow added later is covered
+	// automatically instead of depending on someone remembering to extend
+	// this slice.
+	paths, err := filepath.Glob(".github/workflows/*.yml")
+	if err != nil {
+		t.Fatalf("globbing workflows: %v", err)
+	}
+	if len(paths) == 0 {
+		t.Fatal("no workflows found under .github/workflows/ — this test would pass vacuously")
+	}
+	for _, path := range paths {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatalf("reading %s: %v", path, err)
