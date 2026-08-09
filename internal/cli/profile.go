@@ -93,9 +93,20 @@ func newProfileAddCmd() *cobra.Command {
 	cmd.Flags().StringVar(&name, "name", "", "profile name (required)")
 	cmd.Flags().StringVar(&agentName, "agent", "", "agent to launch (required)")
 	cmd.Flags().StringVar(&model, "model", "", "OpenRouter model slug (required)")
-	cmd.MarkFlagRequired("name")
-	cmd.MarkFlagRequired("agent")
-	cmd.MarkFlagRequired("model")
+	// MarkFlagRequired's only failure is "no such flag" (pflag's
+	// SetAnnotation), i.e. one of these literals drifting from the StringVar
+	// names three lines above. Discarding that error is not harmless: the
+	// flag would silently become optional and `profile add` would write a
+	// profile with an empty name/agent/model. No test covers a missing
+	// required flag, so nothing else would catch the typo. Panicking matches
+	// Landmine 10's precedent for construction-time wiring errors — this
+	// runs inside NewRootCmdWith, so a typo fails the binary and every test
+	// at construction rather than one subcommand at runtime.
+	for _, flag := range []string{"name", "agent", "model"} {
+		if err := cmd.MarkFlagRequired(flag); err != nil {
+			panic(fmt.Sprintf("profile add: mark %q required: %v", flag, err))
+		}
+	}
 
 	return cmd
 }

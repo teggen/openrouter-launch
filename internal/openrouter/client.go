@@ -46,7 +46,10 @@ func (c *Client) Models(ctx context.Context) ([]Model, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetch models: %w", err)
 	}
-	defer resp.Body.Close()
+	// Close's own error is not actionable here: the bytes we care about are
+	// read below, and a teardown failure afterwards tells the caller nothing
+	// it can act on. The explicit `_ =` marks the choice for errcheck.
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetch models: unexpected status %s", resp.Status)

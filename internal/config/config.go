@@ -90,17 +90,21 @@ func Save(cfg *Config) error {
 		return fmt.Errorf("create temp config: %w", err)
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	// Best-effort cleanup. On the success path the rename below has already
+	// moved this file, so Remove fails with ENOENT and that failure carries
+	// no information; on the error paths the error being returned is the one
+	// worth reporting. The explicit `_ =` marks the choice for errcheck.
+	defer func() { _ = os.Remove(tmpName) }()
 
 	// Explicit rather than relying on os.CreateTemp's 0600 default: this is
 	// the API-key confidentiality guarantee, and this comment is what should
 	// stop a future cleanup from deleting the call as redundant.
 	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("chmod temp config: %w", err)
 	}
 	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
+		_ = tmp.Close()
 		return fmt.Errorf("write temp config: %w", err)
 	}
 	if err := tmp.Close(); err != nil {

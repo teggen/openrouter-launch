@@ -1,0 +1,86 @@
+# golangci-lint v2 schema. This file MUST stay on version "2":
+# golangci-lint-action v9 (used by .github/workflows/ci.yml) refuses v1
+# outright — "golangci-lint v1 is not supported by golangci-lint-action >= v7".
+# If a locally installed v1 binary rejects this file, upgrade the binary
+# (make tools). Downgrading the config breaks CI instead.
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  # "standard" is errcheck, govet, ineffassign, staticcheck, unused.
+  # In v2, gosimple was merged into staticcheck — do not try to enable it.
+  default: standard
+  enable:
+    - misspell
+    - revive
+    - bodyclose
+    - noctx
+  settings:
+    revive:
+      rules:
+        # The codebase is heavily commented, but this rule polices comment
+        # *form* ("comment on exported X should be of the form ..."), which
+        # is prose style, not a defect class. The gate is for bugs.
+        - name: exported
+          disabled: true
+  exclusions:
+    rules:
+      # Test helpers routinely ignore errors from cleanup and fixture setup
+      # where the failure mode is the test failing anyway.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+      # Every fmt.Fprint* in internal/cli writes to cmd.OutOrStdout(),
+      # cmd.ErrOrStderr(), or a tabwriter whose Flush() error IS returned
+      # (agents.go, models.go, profile.go all end in `return w.Flush()`).
+      # A failed write to the user's own terminal is not actionable: there
+      # is no remaining channel on which to report it. Scoped to this path,
+      # this linter, and this message so that every other unchecked error in
+      # internal/cli — a dropped config.Save, say — still fails the gate.
+      - path: internal/cli/
+        linters:
+          - errcheck
+        text: fmt\.Fprint
+
+      # Landmine 24: a ConfigWriter agent (droid) deliberately does NOT take
+      # the syscall.Exec handoff — RunWait forks and waits so restore() can
+      # run afterwards. The child is an interactive agent session that lasts
+      # as long as the user wants it to, and its cancellation path is the
+      # documented SIGINT/SIGTERM forwarding a few lines below, not a
+      # context. Switching to CommandContext would add a cancellation
+      # mechanism that could kill a live session and would change the
+      # fork-and-wait contract the Landmine pins.
+      - path: internal/agent/exec_wait\.go
+        linters:
+          - noctx
+        text: os/exec\.Command must not be called
+
+      # QF1001 is a style quickfix, not a defect check. The flagged site
+      # asserts a three-way ordering — `!(a < b && b < c)` says "not in the
+      # expected order" directly, where the De Morgan rewrite
+      # (`a >= b || b >= c`) obscures it. This project's stated recurring
+      # defect is tests that pass for the wrong reason, so rewriting an
+      # assertion's boolean structure to satisfy a style check is a bad
+      # trade. Scoped to tests and to this one check ID.
+      - path: _test\.go
+        linters:
+          - staticcheck
+        text: QF1001
+
+formatters:
+  # v2 moved gofmt/goimports/gofumpt out of linters into their own section.
+  enable:
+    - gofmt
+
+issues:
+  # Both default to a nonzero cap (max-issues-per-linter 50, max-same-issues
+  # 3) which SILENTLY TRUNCATES the report: the first run of this config
+  # showed 18 findings, and the true count was 28 — ten identical-message
+  # errcheck hits were withheld. A gate that hides its 4th repeat of a
+  # finding is not a gate. 0 means unlimited; this can only ever surface
+  # more, never fewer, so it cannot mask a regression.
+  max-issues-per-linter: 0
+  max-same-issues: 0
