@@ -24,7 +24,9 @@ type exitCoder interface {
 
 // exitCode returns the process exit status for err. On Windows,
 // agent.Run (internal/agent/exec_windows.go) waits for the child instead of
-// replacing the process, so a nonzero child exit reaches here wrapped in an
+// replacing the process; on Unix, ConfigWriter agents take the same kind of
+// wait instead of syscall.Exec (agent.RunWait, internal/agent/exec_wait.go).
+// Either way a nonzero child exit reaches here wrapped in an
 // *exec.ExitError; its own exit code is propagated rather than collapsed to
 // a generic 1. Any other non-nil error exits 1; nil exits 0.
 func exitCode(err error) int {

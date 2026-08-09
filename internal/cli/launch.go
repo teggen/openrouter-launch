@@ -141,9 +141,12 @@ func renderWarning(cmd *cobra.Command, w launch.Warning) {
 
 // isAgentExitError reports whether err carries the launched agent's own
 // exit code, i.e. it wraps a value with an ExitCode() int method (the
-// structural shape of *exec.ExitError). On Unix, agent.Run only returns an
-// error when syscall.Exec itself fails to start the process, so this is
-// always false there.
+// structural shape of *exec.ExitError). This used to be always false on
+// Unix, because agent.Run's syscall.Exec only ever errors when it fails to
+// start the process. That is no longer the whole story: ConfigWriter agents
+// take the fork-and-wait path (agent.RunWait), which waits on the child
+// instead of replacing the process, so a nonzero exit reaches here wrapping
+// a real *exec.ExitError on Unix too.
 func isAgentExitError(err error) bool {
 	var ec interface{ ExitCode() int }
 	return errors.As(err, &ec)
