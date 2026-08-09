@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"text/tabwriter"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -10,6 +9,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 func newModelsCmd(a *app) *cobra.Command {
@@ -47,19 +47,9 @@ func newModelsCmd(a *app) *cobra.Command {
 				return nil
 			}
 
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 0, 2, ' ', 0)
-			fmt.Fprintln(w, "MODEL\tCONTEXT\tPROMPT/M\tCOMPLETION/M\tTOOLS")
-			for _, m := range models {
-				tools := ""
-				if m.SupportsTools {
-					tools = "yes"
-				}
-				fmt.Fprintf(w, "%s\t%s\t%s\t%s\t%s\n",
-					m.ID, openrouter.FormatContext(m.ContextLength),
-					openrouter.FormatPrice(m.PromptPricePerM, m.PricingUnknown),
-					openrouter.FormatPrice(m.CompletionPricePerM, m.PricingUnknown), tools)
-			}
-			return w.Flush()
+			out := cmd.OutOrStdout()
+			_, err = fmt.Fprintln(out, ui.NewTheme(out).Render(modelsTable(models)))
+			return err
 		},
 	}
 
@@ -74,4 +64,44 @@ func newModelsCmd(a *app) *cobra.Command {
 		"maximum USD per million completion tokens")
 
 	return cmd
+}
+
+// modelsTable builds the catalog listing.
+//
+// Deliberately uncapped, unlike the other listings: its widest cell is a
+// 50-character model id, already comfortably under ui.MaxTableWidth, and
+// truncating a model slug would make it impossible to copy-paste into -m.
+func modelsTable(models []openrouter.Model) ui.Table {
+	rows := make([][]string, 0, len(models))
+	for _, m := range models {
+		tools := ""
+		if m.SupportsTools {
+			tools = "✓"
+		}
+		rows = append(rows, []string{
+			m.ID,
+			openrouter.FormatContext(m.ContextLength),
+			// Landmine 4: unknown pricing is never free. FormatPrice
+			// renders it as "?" when PricingUnknown is set, so dropping
+			// that argument would claim a model costs nothing.
+			openrouter.FormatPrice(m.PromptPricePerM, m.PricingUnknown),
+			openrouter.FormatPrice(m.CompletionPricePerM, m.PricingUnknown),
+			tools,
+		})
+	}
+
+	return ui.Table{
+		Headers: []string{"MODEL", "CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS"},
+		Rows:    rows,
+		Role: func(_, col int) ui.Role {
+			switch col {
+			case 0:
+				return ui.RoleAccent
+			case 4:
+				return ui.RoleOK
+			default:
+				return ui.RolePlain
+			}
+		},
+	}
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 func TestModelsCommandListsAll(t *testing.T) {
@@ -153,4 +155,42 @@ func mustLoadConfig(t *testing.T) *config.Config {
 		t.Fatalf("config.Load: %v", err)
 	}
 	return cfg
+}
+
+func TestModelsTableMarksToolSupport(t *testing.T) {
+	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]openrouter.Model{
+		{ID: "a/tools", ContextLength: 200000, SupportsTools: true},
+		{ID: "a/plain", ContextLength: 128000},
+	}))
+	wantColumns(t, out, "MODEL", "CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS")
+
+	if got := tableRow(t, out, "a/tools")[4]; got != "✓" {
+		t.Errorf("tools cell = %q, want %q", got, "✓")
+	}
+	if got := tableRow(t, out, "a/plain")[4]; got != "" {
+		t.Errorf("tools cell = %q, want empty for a tool-less model", got)
+	}
+}
+
+// Landmine 4 at the render layer: a model whose price failed to parse is
+// not free, and rendering it as free is an actively wrong claim about cost.
+func TestModelsTableNeverRendersUnknownPricingAsFree(t *testing.T) {
+	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]openrouter.Model{
+		{ID: "x/y", ContextLength: 1000, PricingUnknown: true},
+	}))
+
+	row := tableRow(t, out, "x/y")
+	if strings.Contains(row[2], "0.00") || strings.Contains(row[3], "0.00") {
+		t.Errorf("unknown pricing rendered as free: %q", row)
+	}
+	if row[2] != "?" || row[3] != "?" {
+		t.Errorf("price cells = %q/%q, want %q", row[2], row[3], "?")
+	}
+}
+
+func TestModelsListingEmitsNoEscapesWhenNotATerminal(t *testing.T) {
+	h := newHarness(t)
+	if got := h.run(t, "models"); strings.Contains(got, "\x1b") {
+		t.Errorf("models emitted ANSI escapes to a buffer:\n%q", got)
+	}
 }
