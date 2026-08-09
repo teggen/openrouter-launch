@@ -79,13 +79,18 @@ func TestWorkflowActionsArePinnedToShas(t *testing.T) {
 	}
 }
 
+// Anchored to the `version:` field for the same two reasons its golangci-lint
+// sibling is: v2.17.1 is a PREFIX of v2.17.10, and a bare substring is also
+// satisfied by the string surviving in a comment after the whole goreleaser
+// step is deleted. Both holes were demonstrated on the real tree.
 func TestReleaseWorkflowPinsTheMakefilesGoreleaserVersion(t *testing.T) {
 	want := makefileVar(t, "GORELEASER_VERSION")
 	wf, err := os.ReadFile(".github/workflows/release.yml")
 	if err != nil {
 		t.Fatalf("reading release.yml: %v", err)
 	}
-	if !strings.Contains(string(wf), want) {
-		t.Errorf("release.yml does not pin goreleaser %s (the Makefile's GORELEASER_VERSION); `make snapshot` and the published release would be built by different versions", want)
+	re := regexp.MustCompile(`(?m)^\s*version:\s*` + regexp.QuoteMeta(want) + `\s*$`)
+	if !re.Match(wf) {
+		t.Errorf("release.yml has no `version: %s` field pinning goreleaser (the Makefile's GORELEASER_VERSION); `make snapshot` and the published release would be built by different versions", want)
 	}
 }

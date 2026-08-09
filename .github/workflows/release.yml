@@ -11,6 +11,9 @@ jobs:
   verify:
     name: verify
     runs-on: ubuntu-latest
+    # Explicit, not GitHub's 360-minute default — same rationale as ci.yml's
+    # `quality` job, which this mirrors (fmt-check, vet, test).
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -27,6 +30,11 @@ jobs:
     name: release
     needs: verify
     runs-on: ubuntu-latest
+    # Explicit, not GitHub's 360-minute default. Longer than `verify`'s: this
+    # job cross-builds six targets through GoReleaser and holds
+    # `contents: write` — a hang here should not sit unnoticed for hours
+    # holding that permission.
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -50,6 +58,17 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # GORELEASER_CURRENT_TAG is NOT redundant with the tag that triggered
+          # this workflow. GoReleaser never reads GITHUB_REF/GITHUB_REF_NAME; it
+          # resolves its own tag as
+          #     git tag --points-at HEAD --sort -version:refname | head -1
+          # and this project's release flow puts TWO tags on one commit: the
+          # beta is cut on develop, develop is fast-forwarded into main, then
+          # the stable tag is cut on the same commit. That sort puts
+          # v0.1.0-beta.1 ahead of v0.1.0 — so pushing the stable tag would
+          # rebuild and republish the BETA release, with a green workflow.
+          # Measured, not theorised. This pins publisher to trigger.
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
 
       # Added after Task 4's review. goreleaser_test.go pins the ldflag import
       # paths, but it is a raw substring match over the YAML with no structural
@@ -76,8 +95,19 @@ jobs:
               echo "the ldflags never reached it — see .goreleaser.yaml's builds.ldflags" >&2
               exit 1 ;;
           esac
+          # Anchored with a trailing space: --version prints
+          #   openrouter-launch version <ver> (commit <sha>, ...
+          # so an unanchored match lets 0.1.0 be satisfied by 0.1.0-beta.1 —
+          # exactly the collision GORELEASER_CURRENT_TAG above prevents, and
+          # this is the check that must not fail to notice it.
           case "$got" in
-            *"${GITHUB_REF_NAME#v}"*) echo "ok: reports its own tag" ;;
+            *"${GITHUB_REF_NAME#v} "*) echo "ok: reports its own tag" ;;
             *) echo "::error::binary reports '$got', which does not contain tag ${GITHUB_REF_NAME}" >&2
+               exit 1 ;;
+          esac
+          # The spec's definition of done requires the commit too, not just the tag.
+          case "$got" in
+            *"$GITHUB_SHA"*) echo "ok: reports its own commit" ;;
+            *) echo "::error::binary reports '$got', which does not contain commit $GITHUB_SHA" >&2
                exit 1 ;;
           esac

@@ -20,10 +20,16 @@ if [[ "$tag" != v* ]]; then
   exit 1
 fi
 
+# Strip semver build metadata BEFORE looking for a prerelease hyphen: '+build-5'
+# legally contains a hyphen while being a STABLE version, and GoReleaser (which
+# parses with Masterminds/semver) would publish it as stable. Without this the
+# guard calls it a prerelease and would let it through on develop.
+core="${tag%%+*}"
+
 # Any hyphen after the version core is a semver prerelease. This matches the
 # same tags GoReleaser's `prerelease: auto` treats as prereleases, so the
 # guard and the publisher cannot disagree.
-if [[ "$tag" == *-* ]]; then
+if [[ "$core" == *-* ]]; then
   want="$pre_branch"
   kind="prerelease"
 else

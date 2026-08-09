@@ -3,6 +3,7 @@
 package main
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,13 +14,21 @@ import (
 // Getting it backwards would either block every legitimate release or, worse,
 // let a stable tag cut on develop publish as though it came from main. Git
 // records no "branch this tag was pushed from", so the guard tests
-// reachability — and this test builds a repo whose four tags discriminate
+// reachability — and this test builds a repo whose five tags discriminate
 // every case.
 //
-//	main:    base ────────────────── v0.1.0 (stable, on main)
-//	          ├── develop: beta work  v0.2.0-beta.1 (prerelease, on develop)
-//	          │                       v0.2.0        (stable, NOT on main)
-//	          └── hotfix:  stray work v0.3.0-beta.1 (prerelease, NOT on develop)
+//	main:    base ─────────────── v0.1.0 (stable, on main)
+//	          │              │    ├── develop: beta work  v0.2.0-beta.1 (prerelease, on develop)
+//	          │              │    │                        v0.2.0        (stable, NOT on main)
+//	          │              │    └── hotfix:  stray work  v0.3.0-beta.1 (prerelease, NOT on develop)
+//	          └── main advances ── v1.1.0+build-3 (stable; hyphen is in
+//	                                build metadata, not a prerelease marker;
+//	                                reachable from main only)
+//
+// Landmine for whoever mutation-checks this: check-tag-branch.sh is not a Go
+// build input, so `go test` will happily serve a cached PASS/FAIL from
+// before you edited the script. Always pass -count=1 when re-running after
+// changing the script, or you are grading the wrong run.
 func TestTagBranchGuard(t *testing.T) {
 	script, err := filepath.Abs(filepath.Join(".github", "scripts", "check-tag-branch.sh"))
 	if err != nil {
@@ -51,6 +60,15 @@ func TestTagBranchGuard(t *testing.T) {
 	git("commit", "-q", "--allow-empty", "-m", "stray work")
 	git("tag", "v0.3.0-beta.1")
 
+	// Advances main past the point where develop and hotfix diverged, so this
+	// new commit is reachable from main only — a true discriminator. If the
+	// hyphen check ever stops stripping build metadata first, this tag would
+	// be (mis)classified prerelease, checked against develop instead of
+	// main, found unreachable there, and wrongly refused.
+	git("checkout", "-q", "main")
+	git("commit", "-q", "--allow-empty", "-m", "main advances after both branches diverged")
+	git("tag", "v1.1.0+build-3")
+
 	cases := []struct {
 		tag   string
 		allow bool
@@ -60,6 +78,7 @@ func TestTagBranchGuard(t *testing.T) {
 		{"v0.2.0-beta.1", true, "prerelease tag reachable from develop"},
 		{"v0.2.0", false, "stable tag cut on develop must be refused"},
 		{"v0.3.0-beta.1", false, "prerelease tag not reachable from develop must be refused"},
+		{"v1.1.0+build-3", true, "stable tag whose build metadata contains a hyphen must not be mistaken for a prerelease"},
 	}
 
 	for _, tc := range cases {
@@ -74,5 +93,23 @@ func TestTagBranchGuard(t *testing.T) {
 				t.Fatalf("%s: guard allowed it\n%s", tc.why, out)
 			}
 		})
+	}
+}
+
+// TestCheckTagBranchScriptIsExecutable pins the file mode, not just its
+// content. release.yml invokes the script by path
+// (.github/scripts/check-tag-branch.sh ...), which requires the
+// owner-execute bit; TestTagBranchGuard above invokes it via `bash script`,
+// which works regardless of the bit and so cannot catch this. Losing the bit
+// (e.g. an editor or a `git apply` that doesn't preserve mode) keeps this
+// suite green while breaking the actual release.
+func TestCheckTagBranchScriptIsExecutable(t *testing.T) {
+	path := filepath.Join(".github", "scripts", "check-tag-branch.sh")
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("stat %s: %v", path, err)
+	}
+	if info.Mode()&0o100 == 0 {
+		t.Errorf("%s is not owner-executable (mode %s); release.yml invokes it by path, not through bash", path, info.Mode())
 	}
 }
