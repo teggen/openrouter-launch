@@ -1737,6 +1737,13 @@ Run `openrouter-launch agents` for the live list, including what is installed.
   credentials that outrank the environment (omp's live in a SQLite database,
   which this tool will not take a dependency on to read). Other agents warn
   when a stored credential may shadow the key you passed; these two cannot.
+- **`qwen`'s routing can be silently overridden by your own settings.** If
+  `~/.qwen/settings.json` has a `modelProviders.openai[]` entry whose `id`
+  matches the launched model slug, it may take precedence over this tool's
+  `--auth-type openai` plus `OPENAI_*` configuration — the session would then
+  not route through OpenRouter, with no warning from this tool. This has never
+  been confirmed against a real qwen install; `HANDOFF.md` calls it the most
+  consequential open question left after qwen's launcher shipped.
 - **Windows is built and tested in CI but has never been run in anger.** Exit
   code propagation in particular is unverified on real Windows.
 - **A model that is not `anthropic/*` under Claude Code is advisory, not
