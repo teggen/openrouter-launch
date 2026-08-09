@@ -2,19 +2,28 @@ package tui
 
 import (
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 var (
+	// theme is bound to os.Stdout because that is where bubbletea renders.
+	// Under `go test` stdout is a pipe, so a View comes back free of escape
+	// codes and string assertions keep working without any test setup.
+	theme = ui.NewTheme(os.Stdout)
+
 	titleStyle    = lipgloss.NewStyle().Bold(true)
 	headerStyle   = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "240", Dark: "249"})
 	selectedStyle = lipgloss.NewStyle().Bold(true)
-	dimStyle      = lipgloss.NewStyle().Foreground(lipgloss.AdaptiveColor{Light: "242", Dark: "246"})
-	warnStyle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.AdaptiveColor{Light: "130", Dark: "214"})
+	// Sourced from the shared palette so the screens and the tables cannot
+	// drift apart. Same values these carried before, now declared once.
+	dimStyle  = theme.Style(ui.RoleDim)
+	warnStyle = theme.Style(ui.RoleWarn).Bold(true)
 )
 
 // cursorGutter renders the selection marker. Both branches are the same
@@ -24,6 +33,16 @@ func cursorGutter(selected bool) string {
 		return "› "
 	}
 	return "  "
+}
+
+// cursorCell is the same marker for a table's leading column, where the
+// table itself supplies the padding. One column wide either way, so the
+// columns to its right do not shift as the cursor moves.
+func cursorCell(selected bool) string {
+	if selected {
+		return "›"
+	}
+	return " "
 }
 
 // modelRow renders one catalog row:

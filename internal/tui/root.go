@@ -7,6 +7,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 // rootInput is what the root screen renders.
@@ -44,20 +45,29 @@ const (
 )
 
 type rootRow struct {
-	kind   rowKind
-	label  string
-	detail string
+	kind  rowKind
+	label string
 	// selectable is false for section headers and for agents that cannot be
 	// pointed at OpenRouter, so the cursor can never land on a row that would
 	// do nothing.
 	selectable bool
 	profile    config.Profile
 	agent      *agent.Spec
+	// spec is a profile row's agent, nil when the profile names one that is
+	// no longer registered; installed is that agent's install state. Both
+	// are resolved once in buildRootRows rather than in View, which runs on
+	// every keystroke and must stay free of IO.
+	spec      *agent.Spec
+	installed bool
 }
 
 type rootModel struct {
 	rows   []rootRow
 	cursor int
+	// width and height come from tea.WindowSizeMsg. Both are 0 until the
+	// first one arrives; see View for what that means.
+	width  int
+	height int
 	choice rootChoice
 	done   bool
 }
@@ -68,15 +78,22 @@ func newRootModel(in rootInput) rootModel {
 }
 
 func buildRootRows(in rootInput) []rootRow {
+	installed := func(s *agent.Spec) bool { return in.Installed == nil || in.Installed(s) }
+
 	var rows []rootRow
 
 	if len(in.Profiles) > 0 {
 		rows = append(rows, rootRow{kind: rowHeader, label: "Profiles"})
 		for _, p := range in.Profiles {
-			rows = append(rows, rootRow{
-				kind: rowProfile, label: p.Name,
-				detail: p.Agent + " · " + p.Model, selectable: true, profile: p,
-			})
+			row := rootRow{kind: rowProfile, label: p.Name, selectable: true, profile: p}
+			// A profile can name an agent that is no longer registered —
+			// only from a hand-edited config, since profile add validates
+			// the name, but the status column is the only place that
+			// failure surfaces before launch time.
+			if spec, err := agent.Lookup(p.Agent); err == nil {
+				row.spec, row.installed = spec, installed(spec)
+			}
+			rows = append(rows, row)
 		}
 	}
 
@@ -90,19 +107,13 @@ func buildRootRows(in rootInput) []rootRow {
 		if !spec.Status.Supported {
 			continue
 		}
-		row := rootRow{kind: rowAgent, label: spec.Launcher.DisplayName(), agent: spec}
-		switch {
-		case in.Installed != nil && !in.Installed(spec):
-			// Still selectable: Plan checks the empty model before the
-			// install guard so a user with nothing installed can still
-			// browse the catalog and see what they would be launching.
-			row.detail = "not installed"
-			row.selectable = true
-		default:
-			row.detail = "installed"
-			row.selectable = true
-		}
-		rows = append(rows, row)
+		// Uninstalled agents stay selectable: Plan checks the empty model
+		// before the install guard, so a user with nothing installed can
+		// still browse the catalog and see what they would be launching.
+		rows = append(rows, rootRow{
+			kind: rowAgent, label: spec.Launcher.DisplayName(), agent: spec,
+			selectable: true, installed: installed(spec),
+		})
 	}
 	return rows
 }
@@ -177,30 +188,108 @@ func (m *rootModel) move(delta int) {
 }
 
 func (m rootModel) View() string {
+	return m.render(0, len(m.rows))
+}
+
+// render draws rows[start:end].
+//
+// buildRootRows stays the single row list, section headers included, so
+// initialCursor, move, and every key-handling test are untouched. render
+// walks the window, emits a label when it meets a header row, and collects
+// each run of consecutive profile or agent rows into one table — so a
+// window starting mid-agents simply draws neither the profiles table nor
+// its label.
+func (m rootModel) render(start, end int) string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("openrouter-launch") + "\n\n")
 
-	for i, row := range m.rows {
-		if row.kind == rowHeader {
-			b.WriteString("\n" + headerStyle.Render("  "+row.label) + "\n")
+	for i := start; i < end; {
+		if m.rows[i].kind == rowHeader {
+			// A blank line before every label but the first, so a table's
+			// bottom border does not butt straight into the next heading.
+			if i > start {
+				b.WriteString("\n")
+			}
+			b.WriteString(headerStyle.Render("  "+strings.ToUpper(m.rows[i].label)) + "\n")
+			i++
+			continue
+		}
+		run := i
+		for i < end && m.rows[i].kind == m.rows[run].kind {
+			i++
+		}
+		b.WriteString(indent(m.sectionTable(run, i)) + "\n")
+	}
+
+	b.WriteString(dimStyle.Render("  ↑/↓ move · enter select · esc quit") + "\n")
+	return b.String()
+}
+
+// sectionTable renders rows[from:to], which are all of one kind.
+func (m rootModel) sectionTable(from, to int) string {
+	profiles := m.rows[from].kind == rowProfile
+
+	headers := []string{" ", "NAME", "AGENT", "STATUS"}
+	if profiles {
+		headers = []string{" ", "NAME", "AGENT", "STATUS", "MODEL"}
+	}
+
+	var (
+		rows  [][]string
+		roles []ui.Role
+	)
+	for i := from; i < to; i++ {
+		row := m.rows[i]
+		marker := cursorCell(i == m.cursor)
+
+		if profiles {
+			status, role := ui.UnknownAgentStatus()
+			if row.spec != nil {
+				status, role = ui.AgentStatus(row.spec, row.installed)
+			}
+			rows = append(rows, []string{
+				marker, row.profile.Name, row.profile.Agent, status, row.profile.Model,
+			})
+			roles = append(roles, role)
 			continue
 		}
 
-		line := row.label
-		if row.detail != "" {
-			line += "  " + row.detail
-		}
-
-		switch {
-		case !row.selectable:
-			b.WriteString("    " + dimStyle.Render(line) + "\n")
-		case i == m.cursor:
-			b.WriteString("  " + cursorGutter(true) + selectedStyle.Render(line) + "\n")
-		default:
-			b.WriteString("  " + cursorGutter(false) + line + "\n")
-		}
+		status, role := ui.AgentStatus(row.agent, row.installed)
+		rows = append(rows, []string{
+			marker, row.agent.Name, row.agent.Launcher.DisplayName(), status,
+		})
+		roles = append(roles, role)
 	}
 
-	b.WriteString("\n" + dimStyle.Render("  ↑/↓ move · enter select · esc quit") + "\n")
-	return b.String()
+	selected := m.cursor - from
+	const statusCol = 3
+	return theme.Render(ui.Table{
+		Headers:  headers,
+		Rows:     rows,
+		MaxWidth: m.width,
+		Emphasis: func(row int) bool { return row == selected },
+		Role: func(row, col int) ui.Role {
+			if row < 0 || row >= len(roles) {
+				return ui.RolePlain
+			}
+			switch col {
+			case 1:
+				return ui.RoleAccent
+			case statusCol:
+				return roles[row]
+			default:
+				return ui.RolePlain
+			}
+		},
+	})
+}
+
+// indent shifts a rendered table right by two columns, lining it up with
+// the title, the section labels, and the footer.
+func indent(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i, line := range lines {
+		lines[i] = "  " + line
+	}
+	return strings.Join(lines, "\n")
 }

@@ -35,13 +35,18 @@ func rootFixture(profiles []config.Profile, lastAgent string) rootModel {
 	})
 }
 
+// The section labels are uppercase, matching the table headers.
+//
+// TestRootOmitsTheProfilesHeaderWhenThereAreNone asserts an ABSENCE, so it
+// had to be updated in lockstep with this: left looking for "Profiles" it
+// would pass against a screen that says "PROFILES" while testing nothing.
 func TestRootListsProfilesBeforeAgents(t *testing.T) {
 	m := rootFixture([]config.Profile{{Name: "opus-cc", Agent: "claude", Model: "anthropic/x"}}, "")
 	got := m.View()
 
-	pi, ai := strings.Index(got, "Profiles"), strings.Index(got, "Agents")
+	pi, ai := strings.Index(got, "PROFILES"), strings.Index(got, "AGENTS")
 	if pi < 0 || ai < 0 {
-		t.Fatalf("View = %q, missing a section header", got)
+		t.Fatalf("View = %q, missing a section label", got)
 	}
 	if pi > ai {
 		t.Error("the Agents section renders before Profiles")
@@ -49,9 +54,55 @@ func TestRootListsProfilesBeforeAgents(t *testing.T) {
 }
 
 func TestRootOmitsTheProfilesHeaderWhenThereAreNone(t *testing.T) {
-	if got := rootFixture(nil, "").View(); strings.Contains(got, "Profiles") {
+	if got := rootFixture(nil, "").View(); strings.Contains(got, "PROFILES") {
 		t.Errorf("View = %q, shows an empty Profiles section", got)
 	}
+}
+
+func TestRootRendersRowsInsideABorderedTable(t *testing.T) {
+	got := rootFixture(nil, "").View()
+	for _, want := range []string{"╭", "│", "├", "╰", "NAME", "AGENT", "STATUS"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("View is missing %q:\n%s", want, got)
+		}
+	}
+}
+
+// The marker must be in the first column of the SELECTED row and nowhere
+// else. Asserting only that "›" appears somewhere would pass for a marker
+// stapled to a fixed row.
+func TestRootCursorMarkerTracksTheSelection(t *testing.T) {
+	m := rootFixture(nil, "")
+	if got := markedRow(t, m.View()); got != "claude" {
+		t.Errorf("marker on %q, want claude", got)
+	}
+
+	m.move(1)
+	if got := markedRow(t, m.View()); got != "codex" {
+		t.Errorf("after moving down the marker is on %q, want codex", got)
+	}
+}
+
+// markedRow returns the NAME cell of the row carrying the cursor marker,
+// failing unless exactly one row carries it.
+func markedRow(t *testing.T, view string) string {
+	t.Helper()
+
+	var found []string
+	for _, line := range strings.Split(view, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "│") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(trimmed, "│"), "│")
+		if len(cells) > 1 && strings.TrimSpace(cells[0]) == "›" {
+			found = append(found, strings.TrimSpace(cells[1]))
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("found %d marked rows (%v), want exactly 1:\n%s", len(found), found, view)
+	}
+	return found[0]
 }
 
 // Section headers are rendered rows but must never be landed on.
