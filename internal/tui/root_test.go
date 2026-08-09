@@ -1,10 +1,12 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
@@ -241,5 +243,86 @@ func TestRootHandlesVimKeys(t *testing.T) {
 	m := press(t, rootFixture(nil, ""), runeKey('j'), typeKey(tea.KeyEnter))
 	if m.choice.Agent == nil || m.choice.Agent.Name != "codex" {
 		t.Errorf("j selected %v, want the same as down", m.choice.Agent)
+	}
+}
+
+// manyAgents overflows any realistic terminal: 15 agents plus chrome and
+// two table frames is well past 24 lines.
+func manyAgents() []*agent.Spec {
+	var specs []*agent.Spec
+	for _, n := range []string{
+		"a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8",
+		"a9", "a10", "a11", "a12", "a13", "a14", "a15",
+	} {
+		specs = append(specs, stubSpec(n))
+	}
+	return specs
+}
+
+func tallFixture(t *testing.T, height int) rootModel {
+	t.Helper()
+	m := newRootModel(rootInput{
+		Profiles:  []config.Profile{{Name: "p1", Agent: "claude", Model: "m"}},
+		Agents:    manyAgents(),
+		Installed: allInstalled,
+	})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: height})
+	return next.(rootModel)
+}
+
+// Landmine 17's failure mode reached by a new route: bubbletea's renderer
+// drops lines from the TOP when the view is taller than the terminal, and
+// line 0 is the title. Asserting against lipgloss.Height rather than a
+// hand-counted chrome constant is the whole point — recounting chrome by
+// hand is exactly what produced Landmine 17.
+func TestRootViewFitsTheTerminalHeight(t *testing.T) {
+	for _, height := range []int{12, 20, 24, 40} {
+		for _, cursor := range []int{0, 8, 15} {
+			m := tallFixture(t, height)
+			for i := 0; i < cursor; i++ {
+				m.move(1)
+			}
+			view := m.View()
+			if got := lipgloss.Height(view); got > height {
+				t.Errorf("height=%d cursor=%d: view is %d lines:\n%s", height, cursor, got, view)
+			}
+			if !strings.Contains(view, "openrouter-launch") {
+				t.Errorf("height=%d cursor=%d: the title was dropped:\n%s", height, cursor, view)
+			}
+		}
+	}
+}
+
+// The cursor starts on the profile row, so the first move lands on a1 and
+// the fifteenth on a15 — the last row, which is only reachable by
+// scrolling at this height.
+func TestRootScrollWindowKeepsTheCursorVisible(t *testing.T) {
+	for _, moves := range []int{1, 8, 15} {
+		m := tallFixture(t, 20)
+		for i := 0; i < moves; i++ {
+			m.move(1)
+		}
+		want := fmt.Sprintf("a%d", moves)
+		if got := markedRow(t, m.View()); got != want {
+			t.Errorf("after %d moves the marked row is %q, want %q", moves, got, want)
+		}
+	}
+}
+
+// Before the first WindowSizeMsg the height is unknown, so everything
+// renders rather than nothing — the picker's defaultListHeight posture.
+func TestRootRendersEverythingBeforeTheFirstWindowSize(t *testing.T) {
+	m := newRootModel(rootInput{Agents: manyAgents(), Installed: allInstalled})
+	if got := m.View(); !strings.Contains(got, "a15") {
+		t.Errorf("View dropped rows before the first WindowSizeMsg:\n%s", got)
+	}
+}
+
+func TestRootRangeIndicatorAppearsOnlyWhenScrolled(t *testing.T) {
+	if got := tallFixture(t, 12).View(); !strings.Contains(got, " of ") {
+		t.Errorf("a scrolled view carries no range indicator:\n%s", got)
+	}
+	if got := tallFixture(t, 60).View(); strings.Contains(got, " of ") {
+		t.Errorf("an unscrolled view shows a range indicator:\n%s", got)
 	}
 }

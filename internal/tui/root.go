@@ -1,9 +1,11 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
@@ -141,6 +143,11 @@ func initialCursor(rows []rootRow, lastAgent string) int {
 func (m rootModel) Init() tea.Cmd { return nil }
 
 func (m rootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if size, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width, m.height = size.Width, size.Height
+		return m, nil
+	}
+
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -187,8 +194,49 @@ func (m *rootModel) move(delta int) {
 	}
 }
 
+// View renders as many rows as fit, centered on the cursor.
+//
+// It MEASURES rather than predicts. The rendered height depends on how many
+// table frames land inside the window — each costs a top border, a header
+// row, and a header rule — and that depends on where the window starts, so
+// a hand-computed chrome constant would have to encode a number that
+// changes as the cursor moves. Landmine 17 exists because someone recounted
+// the picker's chrome lines by hand and got 8 where the renderer's
+// arithmetic says 9; this shrinks the window until the real output fits.
+//
+// Before the first WindowSizeMsg the height is unknown, so everything
+// renders rather than nothing — the picker's defaultListHeight posture.
 func (m rootModel) View() string {
-	return m.render(0, len(m.rows))
+	if m.height <= 0 {
+		return m.render(0, len(m.rows))
+	}
+	for n := len(m.rows); n >= 1; n-- {
+		start := m.windowStart(n)
+		if out := m.render(start, start+n); lipgloss.Height(out) <= m.height {
+			return out
+		}
+	}
+	return m.render(m.cursor, m.cursor+1)
+}
+
+// windowStart centers an n-row window on the cursor and clamps it to the
+// list.
+//
+// The window is derived from the cursor alone — there is no stored scroll
+// offset — so View stays a pure function of the model and no second piece
+// of state can desynchronize from it. The cost is that the list scrolls by
+// one on every move once the cursor is past the middle, rather than only
+// when it would leave the window; for a screen this size that is not worth
+// a state variable.
+func (m rootModel) windowStart(n int) int {
+	start := m.cursor - (n-1)/2
+	if last := len(m.rows) - n; start > last {
+		start = last
+	}
+	if start < 0 {
+		start = 0
+	}
+	return start
 }
 
 // render draws rows[start:end].
@@ -221,8 +269,29 @@ func (m rootModel) render(start, end int) string {
 		b.WriteString(indent(m.sectionTable(run, i)) + "\n")
 	}
 
-	b.WriteString(dimStyle.Render("  ↑/↓ move · enter select · esc quit") + "\n")
+	footer := "  ↑/↓ move · enter select · esc quit"
+	if start > 0 || end < len(m.rows) {
+		// Only when something is off screen, so a scrolled screen is never
+		// silently truncated — and an unscrolled one carries no noise.
+		footer += fmt.Sprintf("    %d-%d of %d",
+			countSelectable(m.rows[:start])+1,
+			countSelectable(m.rows[:end]),
+			countSelectable(m.rows))
+	}
+	b.WriteString(dimStyle.Render(footer) + "\n")
 	return b.String()
+}
+
+// countSelectable counts the rows a user can land on, so the range
+// indicator counts items rather than including section headers.
+func countSelectable(rows []rootRow) int {
+	n := 0
+	for _, r := range rows {
+		if r.selectable {
+			n++
+		}
+	}
+	return n
 }
 
 // sectionTable renders rows[from:to], which are all of one kind.
