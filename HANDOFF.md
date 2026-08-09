@@ -751,19 +751,6 @@ actually shrinks when the footer grows, which a width-only assertion cannot
 see. The root screen needs none of this arithmetic: its `View` measures and
 shrinks, so extra footer lines cost rows automatically.
 
-**35. Chrome lines are as capable of overflowing the terminal as table rows
-are, and the footer did for the whole of Phase 2.** The picker's key hints
-were a fixed 85-column string, so they overflowed every terminal narrower
-than that — including the common 80 — and the width test never caught it
-because it only ever measured the *model rows*. Three separate lines had
-the same defect: the title (whose search echo is user-controlled and
-unbounded), the filters/count status line, and the footer. Hints are now a
-`[]string` packed by `hintLines`, which breaks BETWEEN hints and never
-inside one, and the two single-line pieces go through `clampLine`. When
-adding chrome to any screen, assume it will be rendered on a 40-column
-terminal, and assert on **every** line of `View()` — a test scoped to the
-interesting rows is how this survived as long as it did.
-
 **34. The picker sheds catalog columns on a narrow terminal, and MODEL is
 exempt — the exemption is only observable below ~16 columns.** A bordered
 table cannot be cut mid-line the way the deleted `clampRow` cut a
@@ -778,6 +765,19 @@ the table, so a width assertion alone cannot tell them apart — deleting the
 MODEL truncation just makes the loop drop one more column and still fits.
 `TestPickerTruncatesALongModelIDRatherThanSheddingAColumn` is what pins
 which mechanism runs.
+
+**35. Chrome lines are as capable of overflowing the terminal as table rows
+are, and the footer did for the whole of Phase 2.** The picker's key hints
+were a fixed 85-column string, so they overflowed every terminal narrower
+than that — including the common 80 — and the width test never caught it
+because it only ever measured the *model rows*. Three separate lines had
+the same defect: the title (whose search echo is user-controlled and
+unbounded), the filters/count status line, and the footer. Hints are now a
+`[]string` packed by `hintLines`, which breaks BETWEEN hints and never
+inside one, and the two single-line pieces go through `clampLine`. When
+adding chrome to any screen, assume it will be rendered on a 40-column
+terminal, and assert on **every** line of `View()` — a test scoped to the
+interesting rows is how this survived as long as it did.
 
 ## Phase 2 — complete
 
