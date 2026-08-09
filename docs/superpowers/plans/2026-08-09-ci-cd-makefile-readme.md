@@ -583,14 +583,6 @@ linters:
     - revive
     - bodyclose
     - noctx
-  settings:
-    revive:
-      rules:
-        # The codebase is heavily commented, but this rule polices comment
-        # *form* ("comment on exported X should be of the form ..."), which
-        # is prose style, not a defect class. The gate is for bugs.
-        - name: exported
-          disabled: true
   exclusions:
     rules:
       # Test helpers routinely ignore errors from cleanup and fixture setup
@@ -598,6 +590,27 @@ linters:
       - path: _test\.go
         linters:
           - errcheck
+
+      # revive's `exported` rule polices comment FORM ("comment on exported X
+      # should be of the form ..."), which is prose style, not a defect class.
+      # The gate is for bugs.
+      #
+      # Suppress it HERE, and never via `linters.settings.revive.rules`: that
+      # block REPLACES revive's rule set rather than amending it, so naming a
+      # single disabled rule there silently turns revive off completely.
+      # Measured on this tree: 0 findings with the settings block, 26 without.
+      # Every other default rule — error-return, indent-error-flow,
+      # unreachable-code, redefines-builtin-id — was inert and nobody noticed.
+      - linters:
+          - revive
+        text: '^exported:'
+
+      # The four unused-parameter hits are all in test helpers whose
+      # signatures are fixed by the interface they stub.
+      - path: _test\.go
+        linters:
+          - revive
+        text: '^unused-parameter:'
 
 formatters:
   # v2 moved gofmt/goimports/gofumpt out of linters into their own section.
@@ -629,6 +642,18 @@ The finding count is genuinely unknown — no v2 linter has ever run against thi
 3. **Disagreeing with a documented Landmine**: the Landmine wins. Exclude the site and cite the Landmine number in the comment.
 
 Re-run `make lint` until clean.
+
+**Lint is `GOOS`-sensitive.** A build-tagged file is invisible to the linter on
+every other platform, so `make lint` alone never sees `internal/agent/exec_windows.go`.
+Check the other platform explicitly before declaring the gate clean:
+
+```bash
+GOOS=windows $(go env GOPATH)/bin/golangci-lint run ./...
+GOOS=darwin  $(go env GOPATH)/bin/golangci-lint run ./...
+```
+
+Any exclusion that applies to a Unix-tagged file almost certainly applies to its
+Windows counterpart too — write the path pattern to cover both.
 
 - [ ] **Step 5: Confirm nothing regressed**
 
