@@ -125,6 +125,29 @@ func (h *harness) exec(args ...string) (string, error) {
 	return out.String(), err
 }
 
+// testHome points home-directory lookups at a fresh temp dir on every
+// platform, so a test that needs an agent's binary to look ABSENT is not at
+// the mercy of what is installed on the machine (Landmine 8).
+//
+// USERPROFILE is the load-bearing one: os.UserHomeDir reads it rather than
+// HOME on Windows, so setting HOME alone isolates nothing there. This test
+// passed on Windows anyway — but only because the runner happens to have no
+// ~/.local/bin/claude, which is passing for the wrong reason.
+//
+// internal/agent has its own copy: a _test.go helper cannot be imported
+// across packages, and exporting one from production code to serve tests
+// would be worse.
+func testHome(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	t.Setenv("USERPROFILE", dir)
+	t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "AppData", "Local"))
+	return dir
+}
+
 // tableRows parses a rendered ui.Table back into its cells, rejoining the
 // lines of a wrapped cell. Row 0 is the header.
 //

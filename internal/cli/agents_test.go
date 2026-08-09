@@ -59,7 +59,7 @@ func TestAgentsCommandShowsNotInstalledWhenBinaryNotFound(t *testing.T) {
 	prev := claude.LookPath
 	claude.LookPath = func(string) (string, error) { return "", agent.ErrUnknownAgent }
 	t.Cleanup(func() { claude.LookPath = prev })
-	t.Setenv("HOME", t.TempDir()) // Landmine 8
+	testHome(t) // Landmine 8
 
 	h := newHarness(t)
 	if got := claudeStatusField(t, h.run(t, "agents")); got != "✗ not installed" {
