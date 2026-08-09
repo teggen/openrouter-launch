@@ -8,6 +8,7 @@ import (
 
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/tui"
+	"github.com/teggen/openrouter-launch/internal/version"
 )
 
 // globalFlags holds values shared by every subcommand.
@@ -57,6 +58,8 @@ func newRootCmd(svc *launch.Service, openTUI tuiFunc) *cobra.Command {
 	root := &cobra.Command{
 		Use:   "openrouter-launch",
 		Short: "Launch coding agents against OpenRouter models",
+		// Setting Version is what makes cobra synthesise --version.
+		Version: version.String(),
 		Long: "openrouter-launch picks an OpenRouter model and starts a coding " +
 			"agent configured to use it, without modifying the agent's own configuration.",
 		SilenceUsage: true,
