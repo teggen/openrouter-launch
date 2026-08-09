@@ -21,7 +21,7 @@
 - **Action pinning:** every third-party action pinned to a full commit SHA with a trailing `# vN` comment. Never a bare tag.
 - **Pinned tool versions:** golangci-lint `v2.12.2`, goreleaser `v2.17.1`. Defined in the Makefile; workflows must pin the same strings (Tasks 5 and 6 add tests for this).
 - **`.golangci.yml` must use the v2 schema** (`version: "2"`). `golangci-lint-action` v9 rejects v1 outright. If a locally installed v1 binary rejects the config, upgrade the binary via `make tools` — never downgrade the config.
-- **Branch situation during this plan:** `develop` does not exist yet, and `main` must contain all of this work in order to release `v0.1.0`. Therefore **Tasks 1–7 commit directly to `main`**, matching the repo's current convention. Task 8 creates `develop` from `main`, after which `develop` becomes the working branch for future phases.
+- **Branch situation during this plan:** `develop` was created from `main` before Task 1 and pushed (owner's decision, 2026-08-09 — the end-state branch model applied one phase early). **Tasks 1–7 commit to `develop`**, which is already checked out; do not switch branches. `main` is three commits behind and is not touched until Task 8, which fast-forwards it from `develop` and then cuts `v0.1.0`. The beta tag is cut on `develop` before that merge, so the branch guard sees genuinely diverged branches.
 - **Existing invariants still bind.** `writesites_test.go` fails if any non-test `.go` file outside the four allowlisted write sites uses a write primitive — no task here adds one. Landmine 8's `HOME`-isolation rule still applies to any test that needs a binary to look absent.
 
 ---
@@ -1752,26 +1752,19 @@ story) and records the toolchain-skew, golangci-v2-schema, and
 isolated-PATH gotchas that each cost investigation."
 ```
 
-- [ ] **Step 5: Push main and watch CI run for the first time**
+- [ ] **Step 5: Push `develop` and watch CI run for the first time**
+
+`develop` already exists and is checked out (see Global Constraints). This push
+is the first time any of these workflows have ever executed.
 
 ```bash
-git push origin main
+git push origin develop
 gh run watch
 ```
 
 Expected: `quality`, `audit`, `machine-independence`, and `test (ubuntu-latest)` green. `test (macos-latest)` and `test (windows-latest)` may be red — that is the tracked signal, not a blocker.
 
-- [ ] **Step 6: Create develop**
-
-```bash
-git checkout -b develop
-git push -u origin develop
-gh run watch
-```
-Expected: CI runs again, same result. `develop` and `main` are identical at this
-moment; the next step is what makes them diverge.
-
-- [ ] **Step 7: Record what the advisory legs actually reported — on `develop`**
+- [ ] **Step 6: Record what the advisory legs actually reported**
 
 ```bash
 gh run view --log-failed > /tmp/ci-first-run.log
@@ -1788,12 +1781,7 @@ git commit -m "docs: record the first CI run's Windows/macOS results"
 git push origin develop
 ```
 
-This commit is deliberately made on `develop` rather than `main`: it is real
-work that belongs on the working branch, **and** it makes `develop` diverge
-from `main`, which is what Step 9's guard check needs. Do not create an empty
-commit for that purpose — this one already serves it.
-
-- [ ] **Step 8: Cut the first beta and verify the prerelease path**
+- [ ] **Step 7: Cut the first beta and verify the prerelease path**
 
 ```bash
 git tag v0.1.0-beta.1
@@ -1817,10 +1805,10 @@ Expected: six archives plus `checksums.txt` attached; the release marked
 **not** `dev`, **not** `none`. A `dev` here means the ldflags never reached the
 binary and the release is unusable, regardless of everything else being green.
 
-- [ ] **Step 9: Verify the guard refuses a mis-cut tag — on the real workflow**
+- [ ] **Step 8: Verify the guard refuses a mis-cut tag — on the real workflow**
 
-`develop` is now one commit ahead of `main` (Step 7), so a **stable** tag cut
-here is exactly the mistake the guard exists to catch:
+`develop` carries every commit from Tasks 1–7 and `main` carries none of them,
+so a **stable** tag cut here is exactly the mistake the guard exists to catch:
 
 ```bash
 git tag v0.9.9            # stable-shaped, but on develop-only history
@@ -1846,21 +1834,24 @@ git tag -d v0.9.9
 This is the spec's "verified, not assumed" requirement. `tagguard_test.go`
 already proved the logic in isolation; this proves the workflow wiring.
 
-- [ ] **Step 10: Cut the stable release**
+- [ ] **Step 9: Fast-forward main and cut the stable release**
 
 ```bash
 git checkout main
-git merge --ff-only develop
+git merge --ff-only develop     # main is strictly behind, so this must succeed
 git push origin main
+gh run watch                    # CI on main for the first time
 git tag v0.1.0
 git push origin v0.1.0
 gh run watch
 ```
 
-Expected: a normal (not prerelease) release with the same six archives, and
+Expected: the merge is a clean fast-forward (if git refuses it, stop — something
+committed to `main` behind your back, and the guard's assumptions no longer
+hold); then a normal, **not** prerelease, release with the same six archives and
 `--version` reporting `v0.1.0`.
 
-- [ ] **Step 11: Final state check**
+- [ ] **Step 10: Final state check**
 
 ```bash
 gh release list
@@ -1871,26 +1862,31 @@ gh run list --limit 5
 Expected: `v0.1.0` (Latest) and `v0.1.0-beta.1` (Pre-release); no stray
 `v0.9.9`; recent runs green except the advisory legs.
 
-- [ ] **Step 12: Update HANDOFF.md with the final state and push**
+- [ ] **Step 11: Update HANDOFF.md with the final state and push**
 
 Set `**Last updated:**` to today and `**State:**` to note that CI/CD and the
 first release shipped. Record the beta and stable tags, and the fact that
 `develop` is now the working branch.
 
+The handoff commit belongs on `develop` — it is ordinary work, and `main` should
+move only through a release merge:
+
 ```bash
+git checkout develop
+git merge --ff-only main        # pick up the v0.1.0 tag's commit if main moved
 git add HANDOFF.md
 git commit -m "docs: hand off after the CI/CD and README phase"
-git push origin main
-git checkout develop
-git merge --ff-only main
 git push origin develop
 ```
+
+Leave `main` at `v0.1.0`. From here on, work happens on `develop` and reaches
+`main` only when a release is cut.
 
 ---
 
 ## Plan self-review
 
-**Spec coverage.** Every spec section maps to a task: Makefile contract → Task 2; `ci.yml` four jobs → Task 5; `release.yml` + branch guard → Task 6; `.goreleaser.yaml` → Task 4; `internal/version` + the mandatory ldflag pin test → Tasks 1 and 4; Dependabot → Task 5; supply-chain SHA pinning → Task 5 (test) and Task 6 (extended to `release.yml`); README with the Verified column → Task 7; MIT license → Task 1; gotchas A/B/C → Task 8 as Landmines 25–27; every definition-of-done item → Task 8 Steps 5–11.
+**Spec coverage.** Every spec section maps to a task: Makefile contract → Task 2; `ci.yml` four jobs → Task 5; `release.yml` + branch guard → Task 6; `.goreleaser.yaml` → Task 4; `internal/version` + the mandatory ldflag pin test → Tasks 1 and 4; Dependabot → Task 5; supply-chain SHA pinning → Task 5 (test) and Task 6 (extended to `release.yml`); README with the Verified column → Task 7; MIT license → Task 1; gotchas A/B/C → Task 8 as Landmines 25–27; every definition-of-done item → Task 8 Steps 5–10.
 
 **One thing the spec did not anticipate**, found while writing Task 2 and now folded in as Landmine 27: CLAUDE.md's literal `PATH="/usr/local/go/bin:/usr/bin:/bin"` cannot be copied into CI, because `setup-go` installs Go into a tool cache and the hardcoded path would strip `go` itself. `make test-isolated` derives the directory instead.
 
