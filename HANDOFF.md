@@ -224,7 +224,8 @@ verbatim:
 | 4 | `~/.factory/settings.local.json` | **agent (droid)** | `ConfigWriter.Apply`, capability-gated, marker-owned entries only, restore on exit | **no** (`"apiKey": "${OPENROUTER_API_KEY}"` interpolation) |
 
 Rules that survive unchanged: no other writes anywhere in the tree,
-verified by exhaustive grep, not assertion (see "Verify the tree is
+verified by exhaustive grep and now pinned by
+`TestWriteSitesAreExhaustivelyEnumerated` (see "Verify the tree is
 sound"); the API key is never written outside site 2; `Command()` stays
 pure — sites 3 and 4 are materialized by the launch service or `Apply`,
 never by a launcher's `Command` method. Any code writing into an agent's
@@ -879,6 +880,15 @@ dir), and `internal/agent/droid.go` (`Apply`/`restore`/
 other file — any other hit inside `internal/agent` in particular — is a
 Critical defect per Landmine 6. Confirmed exhaustive against exactly these
 four files, 2026-08-09 (Task 6).
+
+This grep is no longer just a manual step: `TestWriteSitesAreExhaustivelyEnumerated`
+(`writesites_test.go`, package `main`, root of the module) runs the same
+check as a regression tripwire on every `go test ./...` — it walks every
+non-test `.go` file, matches the same write-primitive pattern, and fails if
+a hit turns up outside `writeSiteAllowlist`'s four files, or if one of
+those four stops having a hit (the allowlist going stale in the safe
+direction). The grep above is still worth running by hand when auditing,
+but the tree cannot silently regress between audits anymore.
 
 The last two hit the live OpenRouter API. Bare `models` should be a subset of
 `models --tools=false` — `config.defaults()` sets `Filters.ToolsOnly: true`,

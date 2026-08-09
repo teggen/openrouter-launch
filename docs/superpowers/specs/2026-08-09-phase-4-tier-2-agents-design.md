@@ -388,8 +388,10 @@ absent-binary test sets `t.Setenv("HOME", t.TempDir())`; the `HOME=$(mktemp -d)`
 run in HANDOFF must stay green with all Tier 2 binaries invisible.
 
 **Write-site grep:** the verification test updates from "exactly two" to the enumerated
-four-site table above, and asserts `internal/agent` contains no file writes outside
-`ConfigWriter.Apply`/`restore`.
+four-site table above, and asserts the whole module contains no file-write primitive
+outside the four sanctioned files — `TestWriteSitesAreExhaustivelyEnumerated`
+(`writesites_test.go`, package `main`), which subsumes the narrower claim that
+`internal/agent` contains no file writes outside `droid.go`'s `Apply`/`restore`.
 
 **Live gates (owner-approved cents-level spend, cheap model, logs in the phase
 workspace — each launcher merges only after its gate passes):**
