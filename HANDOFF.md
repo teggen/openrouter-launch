@@ -27,7 +27,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | | |
 |---|---|
 | Repo | `github.com/teggen/openrouter-launch` (HTTPS remote, `gh` credential helper) |
-| Branch | `main` — user chose direct-to-main, no feature branches |
+| Branch | `develop` is the working branch; `main` holds released code. (Through Phase 4b this was direct-to-main with no branches at all — that changed when CI landed.) |
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
@@ -36,6 +36,8 @@ principle** and it is the design's central claim — see Landmine 6.
 | Tests | 432 total, 169 of them in `internal/tui` (unchanged since Phase 3 — no TUI screens touched in 4a or 4b); the growth from 411 (Phase 4a's count) is Phase 4b's `Staged`/openclaw/fork-and-wait/droid work |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean (including `internal/tui`), Windows/macOS cross-build clean, all confirmed 2026-08-09 (Task 6); the `HOME`-isolated machine-independence run (Landmine 8) also green |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
+| CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (Windows/macOS advisory), machine-independence; all branches |
+| Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced |
 | Pushed | Yes — `origin/main` is current as of Phase 4b (Task 6 push). Check `git status -sb` rather than trusting this row; it has been wrong before (see the strikethrough history in earlier revisions of this file). |
 
 Working commands, all smoke-tested against the live API:
@@ -491,6 +493,30 @@ not merge the two capabilities or route `Staged` launches through
 fork-and-wait "for consistency" — that would cost every zero-touch agent
 the clean process replacement Landmine 5 relies on, for no benefit.
 
+**25. Prebuilt Go analysis binaries break on toolchain skew — install them
+with the local toolchain.** `staticcheck`, `govulncheck`, and golangci-lint
+v1.64.8 all aborted on this machine with `file requires newer Go version
+go1.26 (application built with go1.25)` before analysing a single line. `make
+tools` `go install`s them instead, and CI does the same inside the job rather
+than downloading prebuilt binaries. If a tool suddenly refuses to run after a
+Go upgrade, this is why — re-run `make tools`, do not pin Go backwards.
+
+**26. `.golangci.yml` must stay on the v2 schema.**
+`golangci-lint-action` v9 rejects v1 configs outright ("golangci-lint v1 is
+not supported by golangci-lint-action >= v7"). v2 moved
+gofmt/goimports/gofumpt into a `formatters:` section and folded `gosimple`
+into `staticcheck`. If a locally installed v1 binary rejects the config,
+upgrade the binary — downgrading the config turns a local inconvenience into
+a broken pipeline. `make lint` refuses to run a v1 binary for this reason.
+
+**27. Landmine 8's isolated run must derive the Go bin directory, not
+hardcode `/usr/local/go/bin`.** The documented command hardcoded that path;
+on a CI runner Go lives in a tool cache, so the hardcoded form strips `go`
+itself out of `PATH` and the target fails for a reason that has nothing to do
+with machine-independence. `make test-isolated` uses `dirname $(command -v
+go)` and keeps the rest of the stripping intact — the point is hiding
+`~/.local/bin`, not hiding the toolchain.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
@@ -796,8 +822,6 @@ there is no further Tier 3 work, and no Tier 4 exists to plan toward.
   — see "Phase 2 — complete" above. It replaced Phase 1's deliberate 1.22 floor;
   nothing else in the code needs past 1.24. The toolchain that builds it is
   whatever the user has — 1.26.5 today. Bump only when a feature requires it.
-- No `README.md` yet.
-- No CI. No release/packaging story.
 
 ## How this was built
 
@@ -836,6 +860,9 @@ named test fail, revert. A test you have never seen fail is not evidence.
 Ask of every test: *would this fail if the behavior it names were broken?*
 
 ## Verify the tree is sound
+
+`make ci` runs all of the below in one command, and is exactly what
+`.github/workflows/ci.yml` invokes.
 
 ```bash
 go test ./... -count=1

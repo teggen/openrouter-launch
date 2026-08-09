@@ -17,17 +17,21 @@ re-litigating one.
 ## Commands
 
 ```bash
-go build -o orl .                                # build the binary
-go test ./... -count=1                           # full suite
+make help                                        # every target
+make build                                       # ./orl with version info
+make test                                        # full suite
+make pre-commit                                  # clean, fmt-check, vet, lint, security, test
+make ci                                          # everything CI runs
+make tools                                       # install pinned lint/security tools
 go test ./internal/tui/ -run TestName -v         # single test
-go test ./internal/tui/ -race -count=1           # race check (TUI package)
-go vet ./... && gofmt -l .                       # lint; gofmt output must be empty
-GOOS=windows go build ./... && GOOS=darwin go build ./...   # cross-compile check
-
-# Machine-independence run (Landmine 8): claude/codex/opencode are really
-# installed on this machine; the suite must stay green with them invisible.
-HOME=$(mktemp -d) PATH="/usr/local/go/bin:/usr/bin:/bin" go test ./... -count=1
+make test-race                                   # race check (TUI package)
+make cross                                       # cross-compile check
+make test-isolated                               # machine-independence run (Landmine 8)
+make snapshot                                    # all six release artifacts, published nowhere
 ```
+
+`make tools` installs analysis binaries with the local Go toolchain
+deliberately: prebuilt ones abort once your Go moves ahead of theirs.
 
 `./orl models` and any launch command hit the live OpenRouter API (catalog
 endpoint is public; launches need a key). The interactive screens refuse
@@ -92,7 +96,12 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
 
 ## Workflow
 
-Direct commits to `main` (owner's choice — no feature branches). The
-project is built spec → plan → subagent-driven execution: specs in
+`develop` is the working branch; `main` holds released code. Stable tags
+(`vX.Y.Z`) are cut on `main`, prerelease tags (`vX.Y.Z-beta.N`) on `develop`,
+and `.github/scripts/check-tag-branch.sh` refuses a tag cut on the wrong
+branch. (Through Phase 4b this was direct-to-main with no branches at all;
+that changed when CI landed.)
+
+The project is built spec → plan → subagent-driven execution: specs in
 `docs/superpowers/specs/`, plans in `docs/superpowers/plans/`; read the
 relevant spec for *why* before changing *what*.
