@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -122,4 +123,57 @@ func (h *harness) exec(args ...string) (string, error) {
 	root.SetArgs(args)
 	err := root.Execute()
 	return out.String(), err
+}
+
+// tableRows parses a rendered ui.Table back into its cells, rejoining the
+// lines of a wrapped cell. Row 0 is the header.
+//
+// Assertions go through this rather than matching substrings against the
+// raw output. Once a cell can wrap, "does the output contain X" depends on
+// where the wrap landed — which is not a property any of these tests means
+// to assert, and which would make them fail for a cosmetic reason or, worse,
+// pass because a phrase happened to survive intact.
+//
+// It assumes a row's first cell is never legitimately empty, which holds
+// for every table here: NAME and MODEL are always set.
+func tableRows(t *testing.T, out string) [][]string {
+	t.Helper()
+
+	var rows [][]string
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.HasPrefix(line, "│") {
+			continue
+		}
+		cells := strings.Split(strings.Trim(line, "│"), "│")
+		for i := range cells {
+			cells[i] = strings.TrimSpace(cells[i])
+		}
+		if len(rows) > 0 && cells[0] == "" {
+			// A continuation line of a wrapped row.
+			last := rows[len(rows)-1]
+			for i := range cells {
+				if i < len(last) && cells[i] != "" {
+					last[i] = strings.TrimSpace(last[i] + " " + cells[i])
+				}
+			}
+			continue
+		}
+		rows = append(rows, cells)
+	}
+	if len(rows) == 0 {
+		t.Fatalf("no table rows in output:\n%s", out)
+	}
+	return rows
+}
+
+// tableRow returns the body row whose first cell is name.
+func tableRow(t *testing.T, out, name string) []string {
+	t.Helper()
+	for _, row := range tableRows(t, out)[1:] {
+		if row[0] == name {
+			return row
+		}
+	}
+	t.Fatalf("no row named %q in output:\n%s", name, out)
+	return nil
 }

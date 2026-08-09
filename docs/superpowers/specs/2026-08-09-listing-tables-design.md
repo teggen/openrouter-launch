@@ -149,7 +149,7 @@ launch time.
 | Command | Columns | Width | Notes |
 |---|---|---|---|
 | `agents` | NAME · AGENT · STATUS · DESCRIPTION | capped at 100; renders at 94 today, so the cap does not bind | Unsupported agents stay hidden (Phase 4a decision, unchanged) |
-| `agents --all` | NAME · AGENT · STATUS · REASON · DESCRIPTION | capped at 100, which **does** bind | REASON is blank for supported agents and wraps for the three desktop apps, so row rules appear automatically |
+| `agents --all` | NAME · AGENT · STATUS · DESCRIPTION / REASON | capped at 100, which **does** bind | The last column holds the reason for an unsupported agent and the description for everyone else; it wraps, so row rules appear automatically |
 | `profile list` | NAME · AGENT · STATUS · MODEL · ARGS | capped at 100 | Empty-state sentence unchanged |
 | `models` | MODEL · CONTEXT · PROMPT/M · COMPLETION/M · TOOLS | no cap | TOOLS becomes `✓` / blank; 334 rows render fine |
 
@@ -158,6 +158,16 @@ point: the cap is what a future long description hits instead of blowing
 the table out, and `TestAgentsOutputStaysNarrow` exists to fail if the cap
 is removed. A content-sized `agents` table would leave that test with
 nothing to pin.
+
+**`--all` folds the reason into the description column rather than adding a
+fifth — measured during implementation, not preferred.** A separate REASON
+column leaves it and DESCRIPTION about 20 columns each once NAME, AGENT,
+and STATUS have taken their share of the cap, and lipgloss hard-breaks a
+word that cannot fit: the reason rendered as `desktop app authentic` /
+`ates through its own account`. One column gets ~40 and wraps on word
+boundaries. Nothing is lost — an unsupported agent's description
+("OpenAI's desktop app") only restates its AGENT cell, and the reason is
+the entire point of the flag.
 
 **The cap is a constant, not the terminal's width.** Querying the terminal
 would mean `golang.org/x/term`, which `internal/tui/program.go` explicitly
