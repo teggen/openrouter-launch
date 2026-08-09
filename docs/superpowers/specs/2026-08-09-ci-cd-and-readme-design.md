@@ -31,7 +31,7 @@ Linux machine. Three consequences:
 | Lint gate | **Curated blocking set; gosec advisory via SARIF** | Blocking gosec: 26 findings, near-all inherent to a tool that launches subprocesses and writes an XDG config |
 | Build targets | **6** — {linux, darwin, windows} × {amd64, arm64} | 386: Go cannot build darwin/386 at all, and every agent this tool launches ships 64-bit-only installers |
 | Release tool | **GoReleaser** | Hand-rolled matrix: ~120 lines of YAML reimplementing archive/checksum/prerelease logic, which is the part most likely to carry a quiet bug |
-| License | **MIT** | Apache-2.0's patent grant buys nothing for a CLI wrapper |
+| License | **MIT**, held by `teggen` | Apache-2.0's patent grant buys nothing for a CLI wrapper. The copyright line names the GitHub handle: the owner does not want a full legal name in the repository |
 | First tag | **`v0.1.0-beta.1` on `develop`**, then `v0.1.0` on `main` | `v1.0.0` would promise a stability the Open items say does not exist |
 
 ## Architecture
