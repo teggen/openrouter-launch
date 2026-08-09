@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-08 · **State:** Phase 3 complete — codex, opencode, Tier 3 registry, live-verified
+**Last updated:** 2026-08-09 · **State:** Phase 3 complete — codex, opencode, Tier 3 registry, live-verified
 
 Read this first if you are picking the project up with no prior context.
 
@@ -31,7 +31,7 @@ principle** and it is the design's central claim — see Landmine 6.
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
 | Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
-| Tests | 371 total, 169 of them in `internal/tui` |
+| Tests | 372 total, 169 of them in `internal/tui` (the 372nd pins unsupported agents as refusing CLI subcommands, added by the final whole-branch review) |
 | Verification | `go test ./...` green, `go vet` clean, `gofmt -l .` empty, `-race` clean, Linux/macOS/Windows cross-build |
 | Agents shipped | claude, codex, opencode; 3 desktop apps registered unsupported |
 | Pushed | Yes — `origin/main` is current as of the TUI phase. It had been 47 commits behind for the whole planner refactor and TUI build; a revision of this file also wrongly claimed the refactor was already pushed. Check `git status -sb` rather than trusting this row. |
@@ -79,12 +79,16 @@ see Open items.
 ```
 docs/superpowers/specs/2026-08-07-openrouter-launch-design.md            the spec — read for WHY
 docs/superpowers/specs/2026-08-07-phase-2-planner-refactor-design.md     spec for the internal/launch refactor
-docs/superpowers/specs/2026-08-08-phase-2-tui-design.md                  spec for the TUI — the current phase
+docs/superpowers/specs/2026-08-08-phase-2-tui-design.md                  spec for the TUI
+docs/superpowers/specs/2026-08-08-phase-3-agents-design.md               spec for codex/opencode + Tier 3, with live-verified values
 docs/superpowers/plans/2026-08-07-phase-1-core.md                        the Phase 1 plan
 docs/superpowers/plans/2026-08-07-phase-2-planner-refactor.md            the plan that built internal/launch
 docs/superpowers/plans/2026-08-08-phase-2-tui.md                         the plan that built internal/tui
-.superpowers/sdd/progress.md                                             build ledger (gitignored)
-.superpowers/sdd/*-report.md                                             per-task reports (gitignored)
+docs/superpowers/plans/2026-08-08-phase-3-agents.md                      the plan that built Phase 3 (its wire_api="chat" is the frozen pre-verification value; the spec records the correction)
+CLAUDE.md                                                                quick operational layer for Claude Code sessions; points here
+.superpowers/sdd/progress.md                                             Phases 1-2 build ledger (gitignored)
+.superpowers/sdd/*-report.md                                             Phases 1-2 per-task reports (gitignored)
+.superpowers/sdd/2026-08-08-phase-3-agents/                              Phase 3 workspace: ledger (progress.md), task briefs/reports, live-*.log evidence cited by Landmine 18 and Open items
 
 main.go                      entry point + exit-code extraction
 internal/openrouter/         model type, HTTP catalog client, disk cache, filters
@@ -95,9 +99,11 @@ internal/tui/                the bubbletea screens and the session driver
 internal/cli/                cobra command tree
 ```
 
-The ledger at `.superpowers/sdd/progress.md` is gitignored but present in the
-working tree. It records every task's commits, every review finding, and the
-reasoning behind each deferral. **Read it before re-litigating any decision.**
+The ledgers (flat `.superpowers/sdd/progress.md` for Phases 1-2, per-plan
+`.superpowers/sdd/2026-08-08-phase-3-agents/progress.md` for Phase 3) are
+gitignored but present in the working tree. They record every task's commits,
+every review finding, and the reasoning behind each deferral. **Read them
+before re-litigating any decision.**
 
 ## Architecture in one page
 
@@ -401,10 +407,17 @@ agent" is accepted behavior, not a gap to fill.
 - **Windows exit-code propagation is unverified on real Windows.** The extraction
   logic is unit-tested with a synthetic `*exec.ExitError`, but nobody has run the
   binary on Windows.
-- **Deferred Minor findings live in the ledger**, per phase, each with a reason:
+- **Deferred Minor findings live in the ledgers**, per phase, each with a reason:
   Phase 1 deferred 10 of 17 and fixed 7; the TUI phase carried 16 into its
   whole-branch review, which fixed 8, deferred 4, and dropped 4 as already
-  resolved or harmless. The four still open are named in
+  resolved or harmless. Phase 3's final review fixed its 2 Importants
+  (Landmine 18's attribution, the unsupported-subcommand CLI test) and
+  deferred 6 Minors with rulings — see
+  `.superpowers/sdd/2026-08-08-phase-3-agents/progress.md`; the largest are
+  two extra conflict-override spellings codex validation misses
+  (`-c=key=val`, bare `model_providers` table assignment) and the
+  model-flag matcher now duplicated across codex/opencode (extract on third
+  use). The four still open from the TUI phase are named in
   `.superpowers/sdd/progress.md`: a picker clamp test that measures the cursor
   reset rather than the clamp (the property is structurally guaranteed — the
   fix is a rename), `isTTY`'s real body never being invoked by any test, the
