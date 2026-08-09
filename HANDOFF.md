@@ -512,7 +512,8 @@ took down the `audit` job on the very first CI run this project ever had
 (run 31306598239, 2026-08-09). All four pinned tools' own `go.mod` files
 declare `go >= 1.25` (golangci-lint 1.25.0, gosec 1.25.8, x/vuln 1.25.0,
 actionlint 1.25.0 — three of them arrived via `@latest`, so this became true
-without any change in this repo), while this project's floor is `go 1.24.0`.
+without any change in this repo), while this project's floor was `go 1.24.0`
+at the time (it is `go 1.25` now — see the third clause below).
 `actions/setup-go` injects `GOTOOLCHAIN=local` into every step of the job,
 which forbids fetching a newer toolchain, so `make tools` died immediately on:
 
@@ -531,10 +532,32 @@ the skew that breaks analysis is tool *older* than the tree; a tool built by a
 newer toolchain analysing older code is fine.
 
 **Do NOT "fix" a Direction-B failure by raising `go.mod`'s `go` directive.**
-That silently drops every user on Go 1.24 in order to satisfy a linter's
-build requirement — trading the project's actual supported range for a
-tooling convenience. `go 1.24` is bubbletea's floor and a deliberate choice
-(see Open items); bump it only when the *product* needs it.
+That silently drops every user on the old floor in order to satisfy a
+linter's build requirement — trading the project's actual supported range for
+a tooling convenience. Fix the tool install, not the product's floor.
+
+*Third clause — the one case where raising the floor IS right, and how to
+tell it apart.* The rule above is about **tooling convenience**. It does not
+apply when the floor itself has gone **end-of-life**, because then the floor
+is a security defect rather than a compatibility promise. That happened here
+on 2026-08-09, one run after Direction B was written: with `make tools`
+fixed, the `audit` job got one step further and govulncheck reported **27
+reachable standard-library vulnerabilities**, every one `Found in:
+<pkg>@go1.24`, with live traces through `internal/openrouter/client.go`'s
+`http.Client.Do`/`io.ReadAll` — i.e. this tool's real HTTPS path to
+OpenRouter. About 17 were fixed inside the 1.24 series, but **ten are fixed
+only in `go1.25.8`–`go1.25.12` and have no 1.24 fix at all**: Go supports the
+newest two majors, 1.26 had shipped, so 1.24 was EOL and those ten were
+permanently unpatched. Released binaries are built by CI, so a 1.24 floor
+meant shipping them. The floor moved to `go 1.25` for that reason and no
+other. The test: *is the old floor still receiving security patches?* If yes,
+fix the tooling. If no, raise the floor — and say in the commit that EOL is
+why.
+
+Note the directive is **`go 1.25`, minor-only, with no patch component**.
+`setup-go` installs exactly what the directive names, so `go 1.25.0` would
+pin CI to the *oldest* 1.25 patch and reproduce the identical failure one
+minor later; the minor-only form resolves to the newest 1.25.x.
 
 **26. `.golangci.yml` must stay on the v2 schema.**
 `golangci-lint-action` v9 rejects v1 configs outright ("golangci-lint v1 is
@@ -877,10 +900,19 @@ there is no further Tier 3 work, and no Tier 4 exists to plan toward.
   headless program tests failing by hanging rather than asserting, and a dead
   `opts.Agent != nil` branch in `rootOrDone()` left as defense in depth per
   Landmine 15.
-- **`go 1.24`** in `go.mod` is bubbletea's floor (from v1.3.8), not an oversight
-  — see "Phase 2 — complete" above. It replaced Phase 1's deliberate 1.22 floor;
-  nothing else in the code needs past 1.24. The toolchain that builds it is
-  whatever the user has — 1.26.5 today. Bump only when a feature requires it.
+- **`go 1.25`** in `go.mod` is a **security floor, not a dependency floor** —
+  and that distinction is the whole point. No dependency requires it:
+  bubbletea needs 1.24.0 and cobra 1.15, so the *code* would still build on
+  1.24. It reads 1.25 because 1.24 went end-of-life and CI (which builds every
+  released binary) found 27 reachable stdlib vulnerabilities on it, ten of
+  them with no 1.24 fix in existence — see Landmine 25's third clause for the
+  evidence and the raise-or-don't test. The history: Phase 1 chose 1.22
+  deliberately, Phase 2 moved to 1.24 because bubbletea v1.3.8 required it (a
+  genuine dependency floor), and the CI/CD phase moved it to 1.25 for
+  security. Deliberately minor-only, no patch component, so `setup-go`
+  resolves the newest 1.25.x rather than pinning the oldest. Raise it again
+  when 1.25 goes EOL, or when a dependency or feature genuinely needs more —
+  not to satisfy a linter.
 
 ## How this was built
 

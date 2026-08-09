@@ -56,7 +56,8 @@ Verify your download against `checksums.txt`, then confirm the binary:
 openrouter-launch --version
 ```
 
-With a Go toolchain:
+With a Go toolchain (**Go 1.25 or newer** — 1.24 is end-of-life and carries
+unpatched standard-library vulnerabilities):
 
 ```bash
 go install github.com/teggen/openrouter-launch@latest
@@ -156,7 +157,9 @@ make snapshot       # build all six release artifacts locally, publish nothing
 ```
 
 `make tools` installs analysis tools with your local Go toolchain on purpose —
-prebuilt binaries break whenever your Go version moves ahead of theirs.
+prebuilt binaries break whenever your Go version moves ahead of theirs. It
+sets `GOTOOLCHAIN=auto` so Go may fetch a newer toolchain solely to *build*
+those tools; what builds and tests this project stays on the `go.mod` floor.
 
 Branches: `develop` is the working branch, `main` holds released code. Stable
 tags (`vX.Y.Z`) are cut on `main`, prerelease tags (`vX.Y.Z-beta.N`) on
