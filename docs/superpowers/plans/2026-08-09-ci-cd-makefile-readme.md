@@ -468,17 +468,30 @@ writesites: ## Landmine 6: show every write primitive outside tests
 
 ## ---- tooling and release --------------------------------------------
 
+# GOTOOLCHAIN=auto is required, not optional. All four tools' own go.mod
+# files now declare go >= 1.25 (golangci-lint 1.25.0, gosec 1.25.8,
+# x/vuln 1.25.0, actionlint 1.25.0 — three of them arrived via @latest, so
+# this became true without any change here), while THIS project's floor is
+# go 1.24.0. actions/setup-go injects GOTOOLCHAIN=local, which forbids
+# fetching a newer toolchain, so the audit job died on
+#   go: ...golangci-lint@v2.12.2 requires go >= 1.25.0
+#       (running go 1.24.0; GOTOOLCHAIN=local)
+# `auto` lets Go fetch a newer toolchain solely to BUILD these tools. It does
+# not change what builds or tests this project — that stays pinned to the
+# go.mod floor via go-version-file. This is safe against Landmine 25 because
+# the skew that breaks analysis is tool OLDER than the tree; a tool built by a
+# newer toolchain analyses older code fine.
 .PHONY: tools
-tools: ## Install the pinned lint/security tools with the local toolchain
-	go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
-	go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
-	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
-	go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
+tools: ## Install the pinned lint/security tools
+	GOTOOLCHAIN=auto go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION)
+	GOTOOLCHAIN=auto go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
+	GOTOOLCHAIN=auto go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	GOTOOLCHAIN=auto go install github.com/rhysd/actionlint/cmd/actionlint@$(ACTIONLINT_VERSION)
 	@echo "installed into $(GOBIN)"
 
 .PHONY: tools-release
 tools-release: ## Install goreleaser (separate: it is a slow build)
-	go install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
+	GOTOOLCHAIN=auto go install github.com/goreleaser/goreleaser/v2@$(GORELEASER_VERSION)
 
 .PHONY: release-check
 release-check: ## Validate .goreleaser.yaml
@@ -1891,13 +1904,28 @@ that changed when CI landed.)
 2. Add three Landmines, continuing the numbering:
 
 ```markdown
-**25. Prebuilt Go analysis binaries break on toolchain skew — install them
-with the local toolchain.** `staticcheck`, `govulncheck`, and golangci-lint
+**25. Go toolchain skew breaks the analysis tools in BOTH directions, and
+the two have opposite remedies.**
+
+*Direction A — tool older than the tree.* A prebuilt binary built by an older
+Go cannot parse a newer stdlib: `staticcheck`, `govulncheck`, and golangci-lint
 v1.64.8 all aborted on this machine with `file requires newer Go version
 go1.26 (application built with go1.25)` before analysing a single line. `make
 tools` `go install`s them instead, and CI does the same inside the job rather
 than downloading prebuilt binaries. If a tool suddenly refuses to run after a
 Go upgrade, this is why — re-run `make tools`, do not pin Go backwards.
+
+*Direction B — the tree's Go older than the tool.* Every one of these tools
+now declares `go >= 1.25` in its own `go.mod`, while this project's floor is
+`go 1.24.0`. `actions/setup-go` injects `GOTOOLCHAIN=local`, so CI's audit job
+died on `requires go >= 1.25.0 (running go 1.24.0; GOTOOLCHAIN=local)` — with
+no change to this repo, because three of the four are installed at `@latest`.
+The remedy is the opposite of Direction A's: `make tools` sets
+`GOTOOLCHAIN=auto` so Go fetches a newer toolchain *solely to build the tools*.
+What builds and tests this project is unchanged — `go-version-file: go.mod`
+still pins that to the declared floor. Do not "fix" a Direction-B failure by
+raising `go.mod`'s floor; that would silently drop support for users on 1.24
+to satisfy a linter's build requirement.
 
 **26. `.golangci.yml` must stay on the v2 schema.**
 `golangci-lint-action` v9 rejects v1 configs outright ("golangci-lint v1 is
