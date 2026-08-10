@@ -650,8 +650,8 @@ func TestPickerFooterWrapsAndIsPaidForOutOfTheList(t *testing.T) {
 func TestPickerFooterAdvertisesCtrlFAndNoAltChord(t *testing.T) {
 	footer := strings.Join(pickerFixture().footer(), hintSeparator)
 
-	if !strings.Contains(footer, "ctrl+f filters") {
-		t.Errorf("footer = %q, missing the filters key", footer)
+	if !strings.Contains(footer, "ctrl+f filter&sort") {
+		t.Errorf("footer = %q, missing the filter&sort key", footer)
 	}
 	if strings.Contains(footer, "alt+") {
 		t.Errorf("footer = %q, still advertises an alt chord", footer)
@@ -670,5 +670,59 @@ func TestHintLinesBreakBetweenHintsNeverInsideOne(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// modelIDList is the visible list's IDs, for failure messages.
+func modelIDList(models []openrouter.Model) []string {
+	out := make([]string, len(models))
+	for i, m := range models {
+		out[i] = m.ID
+	}
+	return out
+}
+
+// The load-bearing composition test. The fixture is chosen so relevance order
+// and column order genuinely DISAGREE: searching "o" matches all three models,
+// and Rank puts openai/o1-mini first (an ID prefix beats a substring) while
+// cheapest-output puts the free qwen model first. A fixture where the two
+// agree passes with SortModels moved inside Rank and proves nothing.
+func TestPickerSortAppliesOutsideRank(t *testing.T) {
+	unsorted := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Filters: filterState{search: "o"}, Width: 120, Height: 40,
+	})
+	if got := unsorted.visible[0].ID; got != "openai/o1-mini" {
+		t.Fatalf("relevance order changed: first is %q, want openai/o1-mini "+
+			"(this test cannot tell the two orders apart unless they differ)", got)
+	}
+
+	sorted := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Filters: filterState{
+			search: "o",
+			sort:   openrouter.Sort{Key: openrouter.SortOutput},
+		},
+		Width: 120, Height: 40,
+	})
+	want := []string{"qwen/qwen3-coder:free", "openai/o1-mini", "anthropic/claude-opus-4.6"}
+	for i, id := range want {
+		if sorted.visible[i].ID != id {
+			t.Fatalf("sorted+searched order = %v, want %v (is SortModels inside Rank?)",
+				modelIDList(sorted.visible), want)
+		}
+	}
+}
+
+func TestPickerKeepsTheSortAcrossASearchEdit(t *testing.T) {
+	m := newPickerModel(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Filters: filterState{sort: openrouter.Sort{Key: openrouter.SortOutput, Desc: true}},
+		Width:   120, Height: 40,
+	})
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("o")})
+	p := next.(pickerModel)
+	if got := p.visible[0].ID; got != "anthropic/claude-opus-4.6" {
+		t.Errorf("after typing, the first row is %q, want the priciest — recompute dropped the sort", got)
 	}
 }

@@ -140,7 +140,7 @@ func run(ctx context.Context, opts Options, sc screens) (launch.Plan, error) {
 
 	s := &session{
 		ctx: ctx, opts: opts, sc: sc, cfg: cfg,
-		filters:      filterStateFrom(cfg.Filters),
+		filters:      filterStateFrom(cfg.Filters, cfg.Sort),
 		savedFilters: cfg.Filters,
 		refreshLeft:  opts.Refresh,
 		extra:        opts.ExtraArgs,

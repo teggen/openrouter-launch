@@ -51,7 +51,7 @@ var tableFrame = lipgloss.Height(theme.Render(ui.Table{
 // pickerHints is the key footer, one hint per element so hintLines can
 // break between them on a narrow terminal instead of overflowing.
 var pickerHints = []string{
-	"ctrl+f filters", "ctrl+s save profile", "esc back",
+	"ctrl+f filter&sort", "ctrl+s save profile", "esc back",
 }
 
 // footer is the key hints, packed to the terminal width.
@@ -139,12 +139,19 @@ func newPickerModel(in pickerInput) pickerModel {
 // recompute reapplies the filters and the search, then restores the cursor to
 // keepID when that model is still visible.
 //
-// The order matters: the four catalog filters run through openrouter.Apply,
-// and only then does the search run through Rank, which orders by match
-// quality. Letting Apply also match on Search would narrow the list with
-// plain substring semantics before Rank ever saw it.
+// The order matters, in three steps. The four catalog filters run through
+// openrouter.Apply — letting Apply also match on Search would narrow the list
+// with plain substring semantics before Rank ever saw it. Then the search runs
+// through Rank, which orders by match quality. Then the chosen column runs
+// through SortModels, OUTSIDE Rank, so a column the user picked deliberately
+// beats relevance and relevance survives only as the stable sort's tie-break.
+//
+// Sorting inside Rank's argument type-checks, looks identical at a glance, and
+// inverts that decision — see Landmine 38.
 func (m *pickerModel) recompute(keepID string) {
-	m.visible = Rank(openrouter.Apply(m.all, m.filters.catalogFilter()), m.filters.search)
+	m.visible = openrouter.SortModels(
+		Rank(openrouter.Apply(m.all, m.filters.catalogFilter()), m.filters.search),
+		m.filters.sort)
 	m.cursor = indexOfModel(m.visible, keepID)
 	m.clampScroll()
 }

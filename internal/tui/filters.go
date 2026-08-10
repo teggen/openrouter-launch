@@ -4,7 +4,9 @@ import (
 	"strings"
 
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
 // filterState is the picker's live filter state: the four persisted filters
@@ -15,6 +17,11 @@ type filterState struct {
 	freeOnly   bool
 	minContext int
 	maxPrice   float64
+	// sort orders the visible list. The zero value is "relevance", which is
+	// the ordering the picker had before sorting existed: catalog order, or
+	// best-match-first while the search box has text. Unlike search — and like
+	// the four filters — it persists.
+	sort openrouter.Sort
 }
 
 // contextCycle and priceCycle are the values the filters screen's Min context
@@ -26,13 +33,42 @@ var (
 	priceCycle   = []float64{0, 1, 5, 15}
 )
 
-func filterStateFrom(f config.Filters) filterState {
+func filterStateFrom(f config.Filters, s config.Sort) filterState {
 	return filterState{
 		toolsOnly:  f.ToolsOnly,
 		freeOnly:   f.FreeOnly,
 		minContext: f.MinContext,
 		maxPrice:   f.MaxPrice,
+		// launch.SortFrom, not a local parse: an unrecognised persisted column
+		// must degrade to relevance in exactly one place, shared with the CLI.
+		sort: launch.SortFrom(s),
 	}
+}
+
+// persistedSort is the sort's persisted form. Unlike the search box the sort
+// survives the session: a user who prefers cheapest-first should not have to
+// say so on every run.
+func (f filterState) persistedSort() config.Sort {
+	return config.Sort{Column: string(f.sort.Key), Desc: f.sort.Desc}
+}
+
+// nextSortKey advances the filter&sort screen's "Sort by" row: relevance, then
+// each catalog column in header order, then back to relevance.
+//
+// Unlike nextContext and nextPrice there is no never-silently-widen rule to
+// honour — columns have no ordering — so a value that is not on the cycle (a
+// hand-edited config) lands on the first column rather than on the next
+// larger one.
+func nextSortKey(cur openrouter.SortKey) openrouter.SortKey {
+	for i, k := range openrouter.SortKeys {
+		if k == cur {
+			if i+1 < len(openrouter.SortKeys) {
+				return openrouter.SortKeys[i+1]
+			}
+			return openrouter.SortNone
+		}
+	}
+	return openrouter.SortKeys[0]
 }
 
 // persisted returns the part of the state that survives the session. Search
@@ -100,8 +136,19 @@ func (f filterState) label() string {
 	if f.maxPrice > 0 {
 		parts = append(parts, "≤"+openrouter.FormatPrice(f.maxPrice, false)+"/M")
 	}
-	if len(parts) == 0 {
-		return "no filters"
+	label := "no filters"
+	if len(parts) > 0 {
+		label = strings.Join(parts, " · ")
 	}
-	return strings.Join(parts, " · ")
+	// The sort is appended rather than folded into parts: it is not a filter,
+	// and "no filters" has to survive next to it — otherwise the line would
+	// claim the list is unfiltered only while it is also unsorted.
+	if f.sort.Key != openrouter.SortNone {
+		arrow := "↑"
+		if f.sort.Desc {
+			arrow = "↓"
+		}
+		label += " · sort:" + ui.SortLabel(f.sort.Key) + " " + arrow
+	}
+	return label
 }
