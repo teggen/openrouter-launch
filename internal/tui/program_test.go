@@ -550,3 +550,30 @@ func TestLiveScreensFiltersCtrlCCancelsTheSession(t *testing.T) {
 		t.Error("ctrl+c did not cancel")
 	}
 }
+
+// ctrl+f driven as the RAW BYTE a terminal sends (0x06), not as a
+// synthesized tea.KeyMsg. The model-level tests build the message themselves,
+// so they assume the byte→KeyMsg→case chain rather than exercising it — and
+// that chain is precisely what the reported defect was about.
+func TestLiveScreensPickCtrlFByteOpensTheFiltersScreen(t *testing.T) {
+	// One byte and no backstop. A trailing ctrl+c looks like a way to make a
+	// regression fail fast instead of hanging, and is not: both bytes arrive
+	// in one read, so both KeyMsgs are queued, and the model still processes
+	// the ctrl+c after ctrl+f's tea.Quit — overwriting the choice and failing
+	// the passing case. A regression here surfaces as a test timeout naming
+	// this function, which is slower but honest.
+	in := bytes.NewBufferString("\x06")
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	choice, err := sc.pick(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+	})
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if choice.Kind != pickFilters {
+		t.Errorf("kind = %v, want pickFilters: the 0x06 byte did not reach the ctrl+f case",
+			choice.Kind)
+	}
+}
