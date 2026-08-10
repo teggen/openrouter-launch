@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -71,7 +72,7 @@ func TestLiveScreensProvidesEveryScreen(t *testing.T) {
 	}
 	// A nil screen would panic on first use, deep inside a session, rather
 	// than failing here.
-	if sc.root == nil || sc.pick == nil || sc.prompt == nil ||
+	if sc.root == nil || sc.pick == nil || sc.filters == nil || sc.prompt == nil ||
 		sc.confirm == nil || sc.notice == nil {
 		t.Errorf("liveScreens left a screen nil: %+v", sc)
 	}
@@ -138,13 +139,31 @@ func TestIsTerminalAcceptsACharacterDevice(t *testing.T) {
 	}
 }
 
+// chunkReader hands back one chunk per Read call, so a test can put a read
+// boundary exactly where it wants one. bytes.Buffer cannot: it returns as
+// much as the caller's buffer holds, which is how the escape ambiguity hides
+// from a test that uses it.
+type chunkReader struct {
+	chunks []string
+	n      int
+}
+
+func (r *chunkReader) Read(p []byte) (int, error) {
+	if r.n >= len(r.chunks) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.chunks[r.n])
+	r.n++
+	return n, nil
+}
+
 // liveScreensHeadless wires production's liveScreens — the seam between the
 // driver and the real bubbletea programs — to fake input and output, so its
 // closures run with no terminal at all. This is the thing the driver's own
 // tests (tui_test.go) cannot exercise: they wire screens to canned closures,
 // never touching runProgram, tea.NewProgram, or the option list liveScreens
 // builds for each screen.
-func liveScreensHeadless(t *testing.T, input, output *bytes.Buffer, extra ...tea.ProgramOption) screens {
+func liveScreensHeadless(t *testing.T, input io.Reader, output *bytes.Buffer, extra ...tea.ProgramOption) screens {
 	t.Helper()
 	original := isTTY
 	t.Cleanup(func() { isTTY = original })
@@ -307,11 +326,17 @@ func TestLiveScreensPickReturnsTheHighlightedModelOnEnter(t *testing.T) {
 }
 
 func TestLiveScreensPickEscReturnsBackWithLiveFilters(t *testing.T) {
-	in := bytes.NewBufferString("\x1bf\x1b") // alt+f, esc
+	in := bytes.NewBufferString("\x1b") // esc
 	var out bytes.Buffer
 	sc := liveScreensHeadless(t, in, &out)
 
-	choice, err := sc.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100})
+	// Draining the input leaves the read loop at io.EOF, which bubbletea
+	// tolerates silently (tty.go:100). The esc still resolves, because what
+	// resolves it is escLatch's own tick rather than another keypress.
+	choice, err := sc.pick(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Filters: filterState{freeOnly: true}, Height: 24, Width: 100,
+	})
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -323,15 +348,51 @@ func TestLiveScreensPickEscReturnsBackWithLiveFilters(t *testing.T) {
 	}
 }
 
+// THE regression test for the reported defect, and the only one that
+// reproduces it: bubbletea must be handed ESC and the letter on SEPARATE
+// Read calls. bytes.NewBufferString("\x1bt") delivers both in one read, which
+// detectSequence resolves to a single alt+t — so that version passes with
+// escLatch deleted and proves nothing.
+//
+// Without the latch the first read's lone \x1b becomes a bare esc
+// (key.go:707) and the picker resolves right there, returning pickBack with
+// Cancelled false. With it, the esc is held, the t is recognised as the
+// chord's tail and swallowed, and the picker survives to see the ctrl+c —
+// which is what makes Cancelled the discriminator between the two.
+func TestLiveScreensPickSurvivesAnAltChordSplitAcrossReads(t *testing.T) {
+	in := &chunkReader{chunks: []string{"\x1b", "t", "\x03"}} // ESC, t, ctrl+c
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	choice, err := sc.pick(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+	})
+	if err != nil {
+		t.Fatalf("pick: %v", err)
+	}
+	if !choice.Cancelled {
+		t.Fatal("the picker resolved before the ctrl+c: the split esc was acted on")
+	}
+	if choice.Filters.search != "" {
+		t.Errorf("search = %q, want empty; the chord's letter was typed into the search box",
+			choice.Filters.search)
+	}
+}
+
 // Catches both "pick drops the !m.done guard" and "pick returns a zero
-// pickerChoice": a filter is set live, then the program is ended from
-// outside — via tea.WithFilter substituting tea.Quit for the next message,
-// standing in for a signal or a lost terminal — before any key resolves the
-// picker. m.done stays false the whole time. The correct closure must still
-// report pickBack carrying the live filter, not a zero-value choice, and
-// must not hang: nothing here waits on input that never arrives.
+// pickerChoice": the program is ended from outside — via tea.WithFilter
+// substituting tea.Quit for the second key, standing in for a signal or a
+// lost terminal — before any key resolves the picker. m.done stays false the
+// whole time. The correct closure must still report pickBack carrying the
+// live filter, not a zero-value choice, and must not hang: nothing here waits
+// on input that never arrives.
+//
+// The two keys must arrive on separate reads. Handed "xy" in one read,
+// detectOneMsg gathers the whole run of printable bytes into ONE KeyRunes
+// message (key.go:697), the filter's count never reaches 2, and the test
+// hangs until the timeout instead of failing.
 func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
-	in := bytes.NewBufferString("\x1bfx") // alt+f, then a harmless key
+	in := &chunkReader{chunks: []string{"x", "y"}} // two harmless keys
 	var out bytes.Buffer
 
 	seen := 0
@@ -346,7 +407,10 @@ func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
 	}
 	sc := liveScreensHeadless(t, in, &out, tea.WithFilter(quitAfterSecondKey))
 
-	choice, err := sc.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100})
+	choice, err := sc.pick(pickerInput{
+		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Filters: filterState{freeOnly: true}, Height: 24, Width: 100,
+	})
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -358,10 +422,15 @@ func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
 	}
 }
 
-// Catches "picker loses tea.WithAltScreen()": the alt-screen enable sequence
-// is written to the program's output at startup, unconditionally, so it is
-// observable without a real terminal. Only the picker should write it.
-func TestLiveScreensOnlyThePickerEntersTheAltScreen(t *testing.T) {
+// Catches "a screen loses tea.WithAltScreen()", and its opposite: the
+// alt-screen enable sequence is written to the program's output at startup,
+// unconditionally, so it is observable without a real terminal.
+//
+// The picker and the filters screen both take it — the filters screen because
+// it is a detour FROM the picker, and a screen that ran inline would drop back
+// through the main screen on the way in and leave the panel in scrollback on
+// the way out. The wizard-trail screens must not.
+func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T) {
 	const altScreenSeq = "\x1b[?1049h"
 
 	var pickOut bytes.Buffer
@@ -371,6 +440,15 @@ func TestLiveScreensOnlyThePickerEntersTheAltScreen(t *testing.T) {
 	}
 	if !strings.Contains(pickOut.String(), altScreenSeq) {
 		t.Error("the picker's program did not enter the alt screen")
+	}
+
+	var filtersOut bytes.Buffer
+	filtersSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), &filtersOut)
+	if _, err := filtersSC.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100}); err != nil {
+		t.Fatalf("filters: %v", err)
+	}
+	if !strings.Contains(filtersOut.String(), altScreenSeq) {
+		t.Error("the filters screen's program did not enter the alt screen")
 	}
 
 	others := map[string]*bytes.Buffer{"root": {}, "prompt": {}, "confirm": {}, "notice": {}}
@@ -401,5 +479,74 @@ func TestLiveScreensOnlyThePickerEntersTheAltScreen(t *testing.T) {
 		if strings.Contains(buf.String(), altScreenSeq) {
 			t.Errorf("%s entered the alt screen; only the picker should", name)
 		}
+	}
+}
+
+// The filters closure, driven headlessly: space toggles the first row and
+// enter applies. Landmine 16 — screen-closure wiring is pinned by driving a
+// real program, never by a nil check, which cannot tell a correctly wired
+// closure from one that returns a zero choice.
+func TestLiveScreensFiltersAppliesTheEditOnEnter(t *testing.T) {
+	in := bytes.NewBufferString(" \r") // space, enter
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
+	if err != nil {
+		t.Fatalf("filters: %v", err)
+	}
+	if !choice.Applied {
+		t.Fatal("enter did not apply")
+	}
+	if !choice.Filters.toolsOnly {
+		t.Errorf("applied %+v, want the first row toggled on", choice.Filters)
+	}
+}
+
+// The mirror of the closure's !m.done branch: an exit nobody decided must
+// read as a cancel carrying the filters the screen opened with, not a zero
+// filterState that would silently clear the session's filters.
+func TestLiveScreensFiltersUndecidedExitCancelsWithTheOpeningFilters(t *testing.T) {
+	in := &chunkReader{chunks: []string{"x", "y"}}
+	var out bytes.Buffer
+
+	seen := 0
+	quitAfterSecondKey := func(_ tea.Model, msg tea.Msg) tea.Msg {
+		if _, ok := msg.(tea.KeyMsg); ok {
+			seen++
+			if seen == 2 {
+				return tea.Quit()
+			}
+		}
+		return msg
+	}
+	sc := liveScreensHeadless(t, in, &out, tea.WithFilter(quitAfterSecondKey))
+
+	opened := filterState{freeOnly: true}
+	choice, err := sc.filters(filterScreenInput{
+		Filters: opened, Models: ortest.Models(), Height: 24, Width: 100,
+	})
+	if err != nil {
+		t.Fatalf("filters: %v", err)
+	}
+	if choice.Applied {
+		t.Error("an undecided exit reported an applied choice")
+	}
+	if choice.Filters != opened {
+		t.Errorf("undecided exit returned %+v, want the opening filters %+v", choice.Filters, opened)
+	}
+}
+
+func TestLiveScreensFiltersCtrlCCancelsTheSession(t *testing.T) {
+	in := bytes.NewBufferString("\x03")
+	var out bytes.Buffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
+	if err != nil {
+		t.Fatalf("filters: %v", err)
+	}
+	if !choice.Cancelled {
+		t.Error("ctrl+c did not cancel")
 	}
 }

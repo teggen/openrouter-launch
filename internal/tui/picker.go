@@ -51,8 +51,7 @@ var tableFrame = lipgloss.Height(theme.Render(ui.Table{
 // pickerHints is the key footer, one hint per element so hintLines can
 // break between them on a narrow terminal instead of overflowing.
 var pickerHints = []string{
-	"alt+t tools", "alt+f free", "alt+c ctx", "alt+p price",
-	"ctrl+s save profile", "esc back",
+	"ctrl+f filters", "ctrl+s save profile", "esc back",
 }
 
 // footer is the key hints, packed to the terminal width.
@@ -90,11 +89,14 @@ const (
 	pickBack pickerChoiceKind = iota
 	pickModel
 	pickSaveProfile
+	pickFilters
 )
 
 type pickerChoice struct {
 	Kind pickerChoiceKind
-	// ModelID is the highlighted model, for pickModel and pickSaveProfile.
+	// ModelID is the highlighted model, for pickModel, pickSaveProfile and
+	// pickFilters. On pickFilters it is what lets the driver reopen the
+	// picker on the same row, so applying a filter does not lose your place.
 	ModelID string
 	// Filters is the live filter state, returned on every exit — including
 	// pickBack — because the driver persists filters whether or not the
@@ -117,6 +119,9 @@ type pickerModel struct {
 	height  int
 	choice  pickerChoice
 	done    bool
+	// esc defers a lone esc long enough to tell it apart from an alt chord
+	// whose two bytes landed in separate reads. See escLatch.
+	esc escLatch
 }
 
 func newPickerModel(in pickerInput) pickerModel {
@@ -213,6 +218,17 @@ func (m *pickerModel) clampScroll() {
 func (m pickerModel) Init() tea.Cmd { return nil }
 
 func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// The latch runs before anything else, because while an esc is pending
+	// the very next message decides what that esc meant. It consumes only
+	// what it needs: a resize still reaches the case below with the esc
+	// still waiting.
+	if handled, escaped := m.esc.step(msg); handled {
+		if escaped {
+			return m.back()
+		}
+		return m, nil
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -224,17 +240,29 @@ func (m pickerModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// back resolves the picker as "the user retreated", carrying the live filters
+// because the driver persists them whether or not the session launched.
+func (m pickerModel) back() (tea.Model, tea.Cmd) {
+	m.choice = pickerChoice{Kind: pickBack, Filters: m.filters}
+	m.done = true
+	return m, tea.Quit
+}
+
 func (m pickerModel) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
-	// Switching on String() first is load-bearing. bubbletea renders an
-	// alt-modified rune as "alt+t", a distinct case from "t", so a filter
-	// chord can never fall through to the search-append branch at the bottom
-	// of this function. Matching on key.Type == tea.KeyRunes first would type
-	// a "t" into the search box on every alt+t.
+	// Switching on String() first is load-bearing: it is what keeps every
+	// named key and control chord out of the search-append branch at the
+	// bottom of this function, which matches on key.Type.
+	//
+	// The four alt chords that used to live here are gone. They were
+	// unreachable on terminals that deliver Alt some other way, and on those
+	// terminals the letter arrived bare and was typed into the search box —
+	// the defect this screen's filters screen replaced them to fix. A
+	// surviving alt+t now matches no case and is stopped by the !key.Alt
+	// guard below, so it does nothing at all.
 	switch key.String() {
 	case "esc":
-		m.choice = pickerChoice{Kind: pickBack, Filters: m.filters}
-		m.done = true
-		return m, tea.Quit
+		// Deferred, not acted on: this may be the first byte of an alt chord.
+		return m, m.esc.arm()
 
 	case "ctrl+c":
 		m.choice = pickerChoice{Kind: pickBack, Filters: m.filters, Cancelled: true}
@@ -257,24 +285,14 @@ func (m pickerModel) handleKey(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.done = true
 		return m, tea.Quit
 
-	// Filter chords keep the highlighted model when it survives the change,
-	// so toggling a filter to compare two models does not lose your place.
-	case "alt+t":
-		m.filters.toolsOnly = !m.filters.toolsOnly
-		m.recompute(m.currentID())
-		return m, nil
-	case "alt+f":
-		m.filters.freeOnly = !m.filters.freeOnly
-		m.recompute(m.currentID())
-		return m, nil
-	case "alt+c":
-		m.filters.minContext = nextContext(m.filters.minContext)
-		m.recompute(m.currentID())
-		return m, nil
-	case "alt+p":
-		m.filters.maxPrice = nextPrice(m.filters.maxPrice)
-		m.recompute(m.currentID())
-		return m, nil
+	// Deliberately NOT guarded on len(m.visible) the way enter and ctrl+s
+	// are. A filter combination that matches nothing is exactly when the
+	// filters screen is needed, and a guard here would leave esc as the only
+	// way out of a list the user filtered into emptiness.
+	case "ctrl+f":
+		m.choice = pickerChoice{Kind: pickFilters, ModelID: m.currentID(), Filters: m.filters}
+		m.done = true
+		return m, tea.Quit
 
 	case "up", "ctrl+p":
 		m.moveCursor(-1)

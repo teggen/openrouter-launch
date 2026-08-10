@@ -36,9 +36,22 @@ func typeRunes(s string) []tea.KeyMsg {
 // type would surface as a confusing panic instead of a named failure.
 func press[M tea.Model](t *testing.T, m M, keys ...tea.KeyMsg) M {
 	t.Helper()
+	msgs := make([]tea.Msg, len(keys))
+	for i, k := range keys {
+		msgs[i] = k
+	}
+	return send(t, m, msgs...)
+}
+
+// send is press for messages a screen raises itself rather than reads from
+// the terminal. escTimeoutMsg is why it exists: escLatch defers esc, so a
+// test that fed only the keypress would observe a screen that has not
+// decided anything yet.
+func send[M tea.Model](t *testing.T, m M, msgs ...tea.Msg) M {
+	t.Helper()
 	var cur tea.Model = m
-	for _, k := range keys {
-		cur, _ = cur.Update(k)
+	for _, msg := range msgs {
+		cur, _ = cur.Update(msg)
 	}
 	out, ok := cur.(M)
 	if !ok {
@@ -46,6 +59,11 @@ func press[M tea.Model](t *testing.T, m M, keys ...tea.KeyMsg) M {
 	}
 	return out
 }
+
+// realEsc is the pair of events a genuine esc produces: the keypress, then
+// the tick that resolves it once the alt-chord window has closed with no
+// rune claiming it.
+func realEsc() []tea.Msg { return []tea.Msg{typeKey(tea.KeyEsc), escTimeoutMsg{}} }
 
 // Sanity check on the assumption the whole picker key map rests on. If
 // bubbletea ever changed this rendering, the picker's chord handling would

@@ -116,11 +116,14 @@ type script struct {
 	// populate it.
 	noticeErr []error
 
+	filters []filterScreenChoice
+
 	rootIn    []rootInput
 	pickIn    []pickerInput
 	promptIn  []promptInput
 	confirmIn []confirmInput
 	noticeIn  []noticeInput
+	filtersIn []filterScreenInput
 }
 
 func (s *script) screens() screens {
@@ -164,6 +167,16 @@ func (s *script) screens() screens {
 			out := s.confirm[0]
 			s.confirm = s.confirm[1:]
 			return out.ok, out.err
+		},
+		filters: func(in filterScreenInput) (filterScreenChoice, error) {
+			s.t.Helper()
+			s.filtersIn = append(s.filtersIn, in)
+			if len(s.filters) == 0 {
+				s.t.Fatalf("filters screen called %d times, more than scripted", len(s.filtersIn))
+			}
+			out := s.filters[0]
+			s.filters = s.filters[1:]
+			return out, nil
 		},
 		notice: func(in noticeInput) error {
 			s.noticeIn = append(s.noticeIn, in)
@@ -531,6 +544,114 @@ func TestRunReopensThePickerPreselectingTheSavedModel(t *testing.T) {
 	}
 	if s.pickIn[1].Selected != "openai/o1-mini" {
 		t.Errorf("reopened picker preselected %q, want the saved model", s.pickIn[1].Selected)
+	}
+}
+
+// The round trip ctrl+f makes: picker → filters screen → picker. Applying a
+// filter must carry the new filters into the reopened picker AND land it back
+// on the model that was highlighted, or the screen would be unusable for
+// comparing two models across a filter change.
+func TestRunApplyingFiltersReopensThePickerOnTheSameModel(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickFilters, ModelID: "openai/o1-mini"},
+			{Kind: pickModel, ModelID: "openai/o1-mini"},
+		},
+		filters: []filterScreenChoice{
+			{Filters: filterState{toolsOnly: true}, Applied: true},
+		},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	if len(s.filtersIn) != 1 {
+		t.Fatalf("filters screen opened %d times, want 1", len(s.filtersIn))
+	}
+	if len(s.pickIn) != 2 {
+		t.Fatalf("picker opened %d times, want 2", len(s.pickIn))
+	}
+	if !s.pickIn[1].Filters.toolsOnly {
+		t.Errorf("reopened picker got %+v, want the applied filter", s.pickIn[1].Filters)
+	}
+	if s.pickIn[1].Selected != "openai/o1-mini" {
+		t.Errorf("reopened picker preselected %q, want the model ctrl+f was pressed on",
+			s.pickIn[1].Selected)
+	}
+}
+
+// The filters screen must be handed the live filters, not the saved ones:
+// otherwise a filter set earlier in the session vanishes from the panel that
+// exists to display it.
+func TestRunOpensTheFiltersScreenOnThePickersLiveFilters(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickFilters, Filters: filterState{freeOnly: true}},
+			{Kind: pickModel, ModelID: "openai/o1-mini"},
+		},
+		filters: []filterScreenChoice{{Filters: filterState{freeOnly: true}}},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if len(s.filtersIn) != 1 || !s.filtersIn[0].Filters.freeOnly {
+		t.Errorf("filters screen opened on %+v, want the picker's live filters", s.filtersIn)
+	}
+}
+
+// Cancelling the panel must leave the session's filters exactly as the picker
+// last reported them. A driver that assigned choice.Filters unconditionally
+// would commit the discarded edits.
+func TestRunCancellingTheFiltersScreenKeepsThePickersFilters(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{
+			{Kind: pickFilters, Filters: filterState{freeOnly: true}},
+			{Kind: pickModel, ModelID: "openai/o1-mini"},
+		},
+		// What a cancel returns: the filters the screen opened with, Applied
+		// false. The toolsOnly edit the user made was discarded by the screen.
+		filters: []filterScreenChoice{{Filters: filterState{freeOnly: true}}},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := s.pickIn[1].Filters; got != (filterState{freeOnly: true}) {
+		t.Errorf("reopened picker got %+v, want the picker's own live filters", got)
+	}
+}
+
+func TestRunFiltersScreenCtrlCCancelsImmediately(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	s := &script{
+		t:       t,
+		root:    []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:    []pickerChoice{{Kind: pickFilters}},
+		filters: []filterScreenChoice{{Cancelled: true}},
+	}
+
+	_, err := run(context.Background(), stubOptions(svc, spec), s.screens())
+
+	if !errors.Is(err, ErrCancelled) {
+		t.Errorf("err = %v, want ErrCancelled", err)
+	}
+	if len(s.pickIn) != 1 {
+		t.Errorf("picker opened %d times, want 1: ctrl+c must not reopen it", len(s.pickIn))
 	}
 }
 

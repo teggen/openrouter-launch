@@ -17,11 +17,22 @@ import (
 // pickerFixture opens the picker over the shared three-model catalog with no
 // filters active, so every test starts from the full list.
 func pickerFixture() pickerModel {
+	return pickerFixtureWith(filterState{})
+}
+
+// pickerFixtureWith is pickerFixture with filters already active.
+//
+// Tests used to seed a filter by pressing alt+f, which stopped being possible
+// when the chords were dropped. Seeding through the input is better anyway:
+// it states the precondition instead of depending on a second binding's
+// behaviour to establish it.
+func pickerFixtureWith(f filterState) pickerModel {
 	return newPickerModel(pickerInput{
-		Agent:  stubSpec("claude"),
-		Models: ortest.Models(),
-		Height: 24,
-		Width:  100,
+		Agent:   stubSpec("claude"),
+		Models:  ortest.Models(),
+		Filters: f,
+		Height:  24,
+		Width:   100,
 	})
 }
 
@@ -49,79 +60,93 @@ func TestPickerTypingNarrowsTheList(t *testing.T) {
 	}
 }
 
-// THE key-conflict test. The spec's original key table put bare t/f/c/$ on
-// the filters, which collides with type-to-search: "anthropic" contains a
-// t. Handling must switch on msg.String() so "alt+t" is a distinct case from
-// "t"; matching on msg.Type == KeyRunes first would type the letter.
-func TestPickerAltChordsAreNeverTypedIntoSearch(t *testing.T) {
+// The alt chords are no longer bound. A terminal that still delivers one
+// must produce nothing at all — neither a filter change nor a typed letter.
+// The letter half is guarded by the search-append branch's !key.Alt, which is
+// exactly what TestAltKeysRenderDistinctlyFromPlainKeys pins; the filter half
+// fails the moment someone re-adds a case.
+func TestPickerAltChordsAreInert(t *testing.T) {
 	m := press(t, pickerFixture(), altKey('t'), altKey('f'), altKey('c'), altKey('p'))
+
 	if m.filters.search != "" {
 		t.Errorf("search = %q, want empty; an alt chord was typed into the search box",
 			m.filters.search)
 	}
-}
-
-func TestPickerAltTTogglesToolsFilter(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('t'))
-	if !m.filters.toolsOnly {
-		t.Fatal("alt+t did not enable the tools filter")
+	if m.filters != (filterState{}) {
+		t.Errorf("filters = %+v, want the zero state; an alt chord is still bound", m.filters)
 	}
-	// o1-mini is the only fixture entry without tool support.
-	if got := visibleIDs(m); len(got) != 2 {
-		t.Errorf("visible = %v, want the two tool-capable models", got)
-	}
-	if m2 := press(t, m, altKey('t')); m2.filters.toolsOnly {
-		t.Error("alt+t did not toggle back off")
+	if m.done {
+		t.Error("an alt chord resolved the picker")
 	}
 }
 
-func TestPickerAltFTogglesFreeFilter(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('f'))
-	if !m.filters.freeOnly {
-		t.Fatal("alt+f did not enable the free filter")
+func TestPickerCtrlFRequestsTheFiltersScreenForTheHighlightedModel(t *testing.T) {
+	m := press(t, pickerFixture(), typeKey(tea.KeyDown), typeKey(tea.KeyCtrlF))
+
+	if !m.done || m.choice.Kind != pickFilters {
+		t.Fatalf("done=%v kind=%v, want a filters request", m.done, m.choice.Kind)
 	}
-	if got := visibleIDs(m); len(got) != 1 || got[0] != "qwen/qwen3-coder:free" {
-		t.Errorf("visible = %v, want only the free model", got)
+	// Carried so the driver can reopen the picker on the same model: applying
+	// a filter must not lose the row you were comparing.
+	if m.choice.ModelID != "qwen/qwen3-coder:free" {
+		t.Errorf("filters request carried %q, want the highlighted model", m.choice.ModelID)
 	}
 }
 
-func TestPickerAltCCyclesTheContextFloor(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('c'))
-	if m.filters.minContext != 32_000 {
-		t.Errorf("minContext = %d, want 32000", m.filters.minContext)
-	}
-	m = press(t, m, altKey('c'))
-	if m.filters.minContext != 128_000 {
-		t.Errorf("minContext = %d after two presses, want 128000", m.filters.minContext)
+func TestPickerCtrlFCarriesTheLiveFilters(t *testing.T) {
+	m := press(t, pickerFixtureWith(filterState{freeOnly: true}), typeKey(tea.KeyCtrlF))
+	if !m.choice.Filters.freeOnly {
+		t.Error("ctrl+f dropped the live filter state")
 	}
 }
 
-// At $1 only the free model qualifies: opus ($75) and o1-mini ($4.40) are
-// both over the ceiling. The plan got this exact interaction wrong once — a
-// free model clears any positive ceiling — so the boundary itself, not just
-// the numeric filter value, is what needs pinning.
-func TestPickerAltPAtOneDollarCeilingKeepsOnlyTheFreeModel(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('p'))
-	if m.filters.maxPrice != 1 {
-		t.Fatalf("maxPrice = %v, want 1", m.filters.maxPrice)
+// enter and ctrl+s both bail on an empty list, and ctrl+f must NOT copy that
+// guard: a filter combination matching nothing is precisely when you need the
+// filters screen to undo it. Guarding here traps the user with esc as the
+// only way out.
+func TestPickerCtrlFOnAnEmptyListStillOpens(t *testing.T) {
+	m := press(t, pickerFixture(), typeRunes("zzz-matches-nothing")...)
+	if len(m.visible) != 0 {
+		t.Fatalf("fixture did not produce an empty list: %v", visibleIDs(m))
 	}
-	if got := visibleIDs(m); len(got) != 1 || got[0] != "qwen/qwen3-coder:free" {
-		t.Errorf("visible at $1 = %v, want only the free model", got)
+
+	m = press(t, m, typeKey(tea.KeyCtrlF))
+
+	if !m.done || m.choice.Kind != pickFilters {
+		t.Fatalf("done=%v kind=%v, want the filters screen to open anyway",
+			m.done, m.choice.Kind)
+	}
+	if m.choice.ModelID != "" {
+		t.Errorf("ModelID = %q with nothing visible, want empty", m.choice.ModelID)
 	}
 }
 
-func TestPickerAltPCyclesThePriceCeiling(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('p'))
-	if m.filters.maxPrice != 1 {
-		t.Errorf("maxPrice = %v, want 1", m.filters.maxPrice)
+// The reported defect, at the model level: bubbletea split ESC+t across two
+// reads, so the picker saw a bare esc followed by a plain t. Before the latch
+// that closed the picker AND typed the letter.
+func TestPickerEscFollowedByARuneSwallowsBothHalvesOfTheChord(t *testing.T) {
+	m := send(t, pickerFixture(), typeKey(tea.KeyEsc), runeKey('t'))
+
+	if m.done {
+		t.Error("a split alt chord closed the picker")
 	}
-	// At $5 the free model and o1-mini both qualify: free pricing is $0,
-	// which clears any positive ceiling, so only the $75 opus is excluded.
-	// (openrouter.Apply's MaxPrice and FreeOnly are independent constraints;
-	// see TestApplyMaxPriceUsesCompletionPrice, pinned on this same fixture.)
-	m = press(t, m, altKey('p'))
-	if got := visibleIDs(m); len(got) != 2 || got[0] != "qwen/qwen3-coder:free" || got[1] != "openai/o1-mini" {
-		t.Errorf("visible at $5 = %v, want the free model and o1-mini", got)
+	if m.filters.search != "" {
+		t.Errorf("search = %q, want empty; the chord's letter was typed", m.filters.search)
+	}
+}
+
+// The other half of the latch: with no rune to claim it, the esc must still
+// resolve. A latch that only ever swallowed would make esc dead.
+func TestPickerEscAloneStillResolvesWhenTheWindowCloses(t *testing.T) {
+	m := press(t, pickerFixture(), typeKey(tea.KeyEsc))
+	if m.done {
+		t.Fatal("esc resolved immediately; the alt-chord window was never opened")
+	}
+
+	m = send(t, m, escTimeoutMsg{})
+
+	if !m.done || m.choice.Kind != pickBack {
+		t.Errorf("done=%v kind=%v after the window closed, want pickBack", m.done, m.choice.Kind)
 	}
 }
 
@@ -174,7 +199,7 @@ func TestPickerCtrlSRequestsAProfileSaveForTheHighlightedModel(t *testing.T) {
 // pickerChoice.Filters' doc says filters ride every exit; pickModel and
 // pickBack were pinned (below), but ctrl+s was not.
 func TestPickerCtrlSCarriesTheLiveFilters(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyCtrlS))
+	m := press(t, pickerFixtureWith(filterState{freeOnly: true}), typeKey(tea.KeyCtrlS))
 	if !m.choice.Filters.freeOnly {
 		t.Error("ctrl+s dropped the live filter state")
 	}
@@ -190,7 +215,7 @@ func TestPickerCtrlSOnAnEmptyListIsANoop(t *testing.T) {
 // Filters are returned on EVERY exit, including backing out, because the
 // driver persists them whether or not the session launched.
 func TestPickerEscReturnsBackCarryingTheLiveFilters(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyEsc))
+	m := send(t, pickerFixtureWith(filterState{freeOnly: true}), realEsc()...)
 	if m.choice.Kind != pickBack {
 		t.Fatalf("kind = %v, want pickBack", m.choice.Kind)
 	}
@@ -204,7 +229,7 @@ func TestPickerEscReturnsBackCarryingTheLiveFilters(t *testing.T) {
 // stepPicker). It still carries pickBack and the live filters, matching
 // esc's own payload — only Cancelled differs.
 func TestPickerCtrlCCancelsCarryingLiveFilters(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyCtrlC))
+	m := press(t, pickerFixtureWith(filterState{freeOnly: true}), typeKey(tea.KeyCtrlC))
 	if m.choice.Kind != pickBack {
 		t.Fatalf("kind = %v, want pickBack", m.choice.Kind)
 	}
@@ -217,14 +242,14 @@ func TestPickerCtrlCCancelsCarryingLiveFilters(t *testing.T) {
 }
 
 func TestPickerEscIsNotCancelled(t *testing.T) {
-	m := press(t, pickerFixture(), typeKey(tea.KeyEsc))
+	m := send(t, pickerFixture(), realEsc()...)
 	if m.choice.Cancelled {
 		t.Error("esc marked the choice as cancelled; only ctrl+c should")
 	}
 }
 
 func TestPickerEnterCarriesTheLiveFilters(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('f'), typeKey(tea.KeyEnter))
+	m := press(t, pickerFixtureWith(filterState{freeOnly: true}), typeKey(tea.KeyEnter))
 	if !m.choice.Filters.freeOnly {
 		t.Error("enter dropped the filter change")
 	}
@@ -242,15 +267,30 @@ func TestPickerCursorClampsWhenTheListNarrows(t *testing.T) {
 	}
 }
 
-// Toggling a filter keeps you on the model you were looking at, if it
-// survives the filter. Losing your place on every chord makes the filters
-// unusable for comparison.
-func TestPickerFilterToggleKeepsTheHighlightedModel(t *testing.T) {
+// Applying a filter keeps you on the model you were looking at, if it
+// survives the filter. Losing your place makes the filters unusable for
+// comparison.
+//
+// The picker only supplies half of this now — the ModelID it hands to the
+// driver on ctrl+f. The round trip that spends it lives one layer up, in
+// TestSessionApplyingFiltersReopensThePickerOnTheSameModel; here the property
+// is that a model reachable by preselection is actually restored, which is
+// what makes that ModelID worth carrying.
+func TestPickerPreselectionSurvivesAFilterThatKeepsTheModel(t *testing.T) {
 	m := press(t, pickerFixture(), typeKey(tea.KeyDown)) // qwen, which is free
 	before := m.visible[m.cursor].ID
-	m = press(t, m, altKey('t')) // qwen supports tools, so it survives
-	if got := m.visible[m.cursor].ID; got != before {
-		t.Errorf("highlighted %q after the toggle, want %q", got, before)
+
+	// qwen supports tools, so it survives the filter the driver is about to
+	// apply, and the reopened picker must land back on it.
+	reopened := newPickerModel(pickerInput{
+		Agent:    stubSpec("claude"),
+		Models:   ortest.Models(),
+		Filters:  filterState{toolsOnly: true},
+		Selected: before,
+		Height:   24, Width: 100,
+	})
+	if got := reopened.visible[reopened.cursor].ID; got != before {
+		t.Errorf("highlighted %q after the filter was applied, want %q", got, before)
 	}
 }
 
@@ -295,13 +335,13 @@ func TestPickerCursorStopsAtBothEnds(t *testing.T) {
 	}
 }
 
-// The whole-view blob is not safe to assert against here: the key footer
-// names every filter unconditionally ("alt+t tools · alt+f free · ..."), and
-// this fixture's model IDs are short enough to render whole in every row, so
-// "tools" and "claude" both appear regardless of the picker's actual filter
-// or title state. Anchor on the specific line each fact belongs to instead.
+// The whole-view blob is not safe to assert against here: this fixture's
+// model IDs are short enough to render whole in every row, so "claude"
+// appears regardless of the title state, and the TOOLS column header carries
+// the word "tools" regardless of the filter state. Anchor on the specific
+// line each fact belongs to instead.
 func TestPickerViewNamesTheAgentTheFiltersAndTheCounts(t *testing.T) {
-	m := press(t, pickerFixture(), altKey('t'))
+	m := pickerFixtureWith(filterState{toolsOnly: true})
 	lines := strings.Split(m.View(), "\n")
 
 	title := lines[0]
@@ -600,6 +640,21 @@ func TestPickerFooterWrapsAndIsPaidForOutOfTheList(t *testing.T) {
 	// And the whole view still fits, title included.
 	if got := len(strings.Split(narrow.View(), "\n")); got > 24 {
 		t.Errorf("View split into %d lines, want at most 24:\n%s", got, narrow.View())
+	}
+}
+
+// The footer is the only place the picker advertises how to reach the
+// filters, and advertising a chord that a terminal may silently swallow is
+// what made the filters undiscoverable in the first place. It must name
+// ctrl+f and must not name an alt chord.
+func TestPickerFooterAdvertisesCtrlFAndNoAltChord(t *testing.T) {
+	footer := strings.Join(pickerFixture().footer(), hintSeparator)
+
+	if !strings.Contains(footer, "ctrl+f filters") {
+		t.Errorf("footer = %q, missing the filters key", footer)
+	}
+	if strings.Contains(footer, "alt+") {
+		t.Errorf("footer = %q, still advertises an alt chord", footer)
 	}
 }
 

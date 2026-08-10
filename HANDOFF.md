@@ -29,12 +29,12 @@ principle** and it is the design's central claim — see Landmine 6.
 | Repo | `github.com/teggen/openrouter-launch` (HTTPS remote, `gh` credential helper) |
 | Branch | `develop` is the working branch; `main` holds released code. (Through Phase 4b this was direct-to-main with no branches at all — that changed when CI landed.) |
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
-| Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt |
+| Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt. Filters moved to a `ctrl+f` screen on 2026-08-10 — see Landmine 37. |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. **Five of the six are zero-touch; cline is not, as of 2026-08-09** — env-only delivery cannot configure an interactive cline session, and its Task 9 gate could not see that because it ran one-shot prompts against a virgin `~/.cline` (both conditions hide the two mechanisms; see Landmine 36). cline is now `-k` on argv plus a snapshot/restore `ConfigWriter` (write site 5). |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **495** total, verified by both counting methods below. The cline `-k` fix (Landmine 36) added 6 net — 7 new (argv key, the `ConfigWriter` assertion, four `Apply`/restore cases) minus the deleted `TestClineShadowedCredential`, whose premise the fix invalidated. It was 489 before. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
-| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 85.9% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-09 after the cline `-k` fix; last confirmed in GitHub Actions on run `31338565751` (all six jobs, Windows included) and again by the `v0.2.0` release workflow. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual — and cline's own gate is now interactive, per Landmine 36. |
+| Tests | **518** total, verified by both counting methods below. The filters-screen change (Landmine 37) added 22 net: 2 for `escLatch`, +7/−6 on the picker (three `ctrl+f` cases, the split chord, the deferred esc, the footer, and the alt chords collapsing into one inertness test, against the five alt-chord tests deleted), 11 for the filters screen, 4 driver tests for the `ctrl+f` round trip, and 4 headless `liveScreens` tests (the split-read regression plus three for the new closure). It was **496** before — this row said 495, which was off by one and is corrected here; both counting methods now agree on 518. The cline `-k` fix (Landmine 36) added 6 net — 7 new (argv key, the `ConfigWriter` assertion, four `Apply`/restore cases) minus the deleted `TestClineShadowedCredential`, whose premise the fix invalidated. It was 489 before. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.2% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-10 after the filters-screen change (Landmine 37); last confirmed in GitHub Actions on run `31338565751` (all six jobs, Windows included) and again by the `v0.2.0` release workflow. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual — and cline's own gate is now interactive, per Landmine 36. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (**all three blocking** as of 2026-08-09: Windows' 19 platform-fixture failures are closed and its `experimental` flag is off), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release), `v0.1.0`, `v0.1.1`, and `v0.2.0` (Latest)**, all 2026-08-09, six archives + `checksums.txt` each. `v0.1.1` and `v0.2.0` both went straight to stable with no beta (owner decision), so on each only ONE tag sits on the commit and the `GORELEASER_CURRENT_TAG` collision below could not arise. `v0.2.0` is a **minor** bump, not the patch first proposed: `main` had fallen 20 commits behind, so the release carried the whole listing-tables redesign (9 `feat` commits) and the Windows fixes alongside the cline `-k` fix, and the `-k` change itself rejects a passthrough flag that used to be allowed. Check what `main..develop` actually holds before picking the next number |
@@ -863,6 +863,52 @@ integration writes `globalState.json` with `welcomeViewCompleted`; that key
 does not exist anywhere in the 3.x CLI binary and is pure VS Code-era
 legacy.
 
+**37. The picker's filters live on a `ctrl+f` screen. Do NOT put them back
+on `alt+t/f/c/p`, and do NOT delete `escLatch`.** Reported as two bugs
+(2026-08-10, owner running `orl` over SSH): the alt chords typed their letter
+into the search box, and nothing on screen said what the chords meant.
+
+The model was never at fault. `handleKey` switched on `key.String()` before
+the search-append branch, and the append branch guards on `!key.Alt`, so
+`alt+t` could not fall through — `TestAltKeysRenderDistinctlyFromPlainKeys`
+still pins the bubbletea rendering that rests on. The `alt` was being lost
+*before* `tea.KeyMsg`, and only two things can do that:
+
+- **The read-boundary split.** bubbletea 1.3.10 sets `canHaveMoreData :=
+  numBytes == len(buf)` against a 256-byte buffer (`key.go:579`), so a read
+  returning a lone `\x1b` looks like a complete event boundary and
+  `detectOneMsg` reports a bare `KeyEscape` (`key.go:707`). The rune from the
+  next read then arrives unmodified — closing the screen *and* typing the
+  letter.
+- **A terminal that sends no ESC at all**, where a bare `t` carries no
+  evidence Alt was held and no amount of parsing can recover it.
+
+Both are covered, because the client emulator was on the far end of an SSH
+session and could not be observed from the server. `escLatch` (40 ms, one
+`tea.Tick`) defers every `esc` on the picker and the filters screen: a plain
+rune inside the window means the pair was a split chord and **both halves are
+swallowed**; anything else, or the tick, resolves a real esc. `ctrl+f` is the
+terminal-independent half — a control key the search box can never claim.
+
+Three things that look like cleanups and are not:
+
+- **`ctrl+f` has no `len(m.visible) == 0` guard**, unlike `enter` and
+  `ctrl+s`. A filter combination matching nothing is exactly when the screen
+  is needed; guarding it traps the user with `esc` as the only exit.
+- **The match count is `Rank(Apply(...), search)`, not `Apply` alone.**
+  `filterState` carries the session's search, and a count built from `Apply`
+  would contradict the picker's own status line.
+- **Testing the split needs a reader that returns `\x1b` and `t` on separate
+  `Read` calls** (`chunkReader`). `bytes.NewBufferString("\x1bt")` hands
+  bubbletea both in one read, which parses as a single `alt+t` — that version
+  passes with `escLatch` deleted and proves nothing. Same trap for any test
+  wanting two rune keypresses: one read of `"xy"` is one `KeyRunes` message
+  (`key.go:697`).
+
+Deliberately deferred: `prompt.go` has the same text-input hazard but
+advertises no chords, so nothing invites the keypress. Design:
+`docs/superpowers/specs/2026-08-10-picker-filters-screen-design.md`.
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
@@ -872,11 +918,11 @@ notice screens for the planner's typed errors.
 Four deliberate divergences from the original design doc, all recorded in
 `docs/superpowers/specs/2026-08-08-phase-2-tui-design.md`:
 
-- **Filters are on `alt+t/f/c/p`, not bare `t/f/c/$`.** The original key
-  table collided with type-to-search: `anthropic` contains a `t`. Key
-  handling switches on `msg.String()` so `"alt+t"` is a distinct case from
-  `"t"`; a mutation test pins that a chord can never fall through to the
-  search box.
+- **Filters are on a `ctrl+f` screen, not bare `t/f/c/$` and no longer on
+  `alt+t/f/c/p` either.** The original key table collided with
+  type-to-search: `anthropic` contains a `t`. The alt chords that replaced it
+  were correct in the model but not reachable on every terminal — see
+  Landmine 37, which supersedes this and is the binding version.
 - **`go 1.22` became `go 1.24`**, which bubbletea requires from v1.3.8.
 - **The API key is saved unconditionally, and the prompt says so.** The spec
   originally promised an "offer to save". There is no offer: the prompt
@@ -1134,10 +1180,10 @@ for both.
   accepted, and the handoff produced a working session. Which entry point was
   used — bare `openrouter-launch` (root screen) or `openrouter-launch claude`
   (straight to the picker) — went unrecorded, so the root screen specifically
-  remains human-unverified. Also still unverified: the picker's type-to-search
-  and `alt+t/f/c/p` filter chords, `ctrl+s` profile save, `esc` navigation
-  back out of a screen, and whether filter state actually persists to
-  `config.json` on exit.
+  remains human-unverified. Also still unverified: the picker's type-to-search,
+  the `ctrl+f` filters screen that replaced the `alt+t/f/c/p` chords
+  (Landmine 37), `ctrl+s` profile save, `esc` navigation back out of a screen,
+  and whether filter state actually persists to `config.json` on exit.
 - **`codex` and `opencode`'s interactive TUIs are not yet driven by a
   human.** Both were live-verified against OpenRouter (Task 4,
   2026-08-08) only through headless one-shot invocations — `codex exec

@@ -17,9 +17,10 @@ type filterState struct {
 	maxPrice   float64
 }
 
-// contextCycle and priceCycle are the values alt+c and alt+p step through.
-// 0 means "no constraint" and is the first entry, so a full cycle always
-// returns to unfiltered rather than trapping the user in a narrow view.
+// contextCycle and priceCycle are the values the filters screen's Min context
+// and Max price rows step through. 0 means "no constraint" and is the first
+// entry, so a full cycle always returns to unfiltered rather than trapping the
+// user in a narrow view.
 var (
 	contextCycle = []int{0, 32_000, 128_000, 200_000, 1_000_000}
 	priceCycle   = []float64{0, 1, 5, 15}

@@ -70,6 +70,7 @@ func (o Options) lookup(name string) (*agent.Spec, error) {
 type screens struct {
 	root    func(rootInput) (rootChoice, error)
 	pick    func(pickerInput) (pickerChoice, error)
+	filters func(filterScreenInput) (filterScreenChoice, error)
 	prompt  func(promptInput) (string, bool, error)
 	confirm func(confirmInput) (bool, error)
 	notice  func(noticeInput) error
@@ -247,6 +248,28 @@ func (s *session) stepPicker() (state, error) {
 		s.lastModelID = choice.ModelID
 		if err := s.saveProfile(choice.ModelID); err != nil {
 			return stateDone, err
+		}
+		return statePicker, nil
+
+	case pickFilters:
+		// Preselecting the reopened picker is what keeps your place across a
+		// filter change; ctrl+f carries the highlighted model for exactly
+		// this. It may be empty when the list was filtered to nothing, which
+		// indexOfModel already treats as "start at the top".
+		s.lastModelID = choice.ModelID
+		fc, ferr := s.sc.filters(filterScreenInput{Filters: s.filters, Models: s.models})
+		if ferr != nil {
+			return stateDone, ferr
+		}
+		if fc.Cancelled {
+			return stateDone, ErrCancelled
+		}
+		// Only on apply. s.filters already holds what the picker reported, so
+		// assigning unconditionally would commit the edits a cancel discarded
+		// — the screen returns what it opened with in that case, but relying
+		// on that would make the driver's correctness depend on the screen's.
+		if fc.Applied {
+			s.filters = fc.Filters
 		}
 		return statePicker, nil
 

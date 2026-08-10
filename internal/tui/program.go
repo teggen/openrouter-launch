@@ -82,7 +82,7 @@ func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 		},
 
 		pick: func(in pickerInput) (pickerChoice, error) {
-			m, err := runProgram(newPickerModel(in), pickerProgramOptions(extra)...)
+			m, err := runProgram(newPickerModel(in), altScreenOptions(extra)...)
 			if err != nil {
 				return pickerChoice{}, err
 			}
@@ -91,6 +91,21 @@ func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 				// terminal going away. Treat it as backing out rather than as
 				// a selection, and carry the filters so they still persist.
 				return pickerChoice{Kind: pickBack, Filters: m.filters}, nil
+			}
+			return m.choice, nil
+		},
+
+		filters: func(in filterScreenInput) (filterScreenChoice, error) {
+			m, err := runProgram(newFilterScreenModel(in), altScreenOptions(extra)...)
+			if err != nil {
+				return filterScreenChoice{}, err
+			}
+			if !m.done {
+				// Same rule as pick's: an undecided exit is a cancel. It must
+				// carry the filters the screen OPENED with — a zero
+				// filterState here would silently clear the session's filters
+				// on a signal.
+				return filterScreenChoice{Filters: in.Filters}, nil
 			}
 			return m.choice, nil
 		},
@@ -132,9 +147,13 @@ func liveScreens(extra ...tea.ProgramOption) (screens, error) {
 	}, nil
 }
 
-// pickerProgramOptions is the picker's program options: the alt screen plus
-// whatever the caller adds. Named rather than inlined so it is one thing a
-// test can reason about instead of a literal buried in a closure.
-func pickerProgramOptions(extra []tea.ProgramOption) []tea.ProgramOption {
+// altScreenOptions is the alt screen plus whatever the caller adds. Named
+// rather than inlined so it is one thing a test can reason about instead of a
+// literal buried in a closure.
+//
+// Two screens take it: the picker, and the filters screen that ctrl+f opens
+// from it. Running the detour inline would drop back through the main screen
+// on the way in and leave the panel in the scrollback on the way out.
+func altScreenOptions(extra []tea.ProgramOption) []tea.ProgramOption {
 	return append([]tea.ProgramOption{tea.WithAltScreen()}, extra...)
 }
