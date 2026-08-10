@@ -1407,3 +1407,34 @@ func TestRunAPIKeyRetryExhaustedRendersAccumulatedWarnings(t *testing.T) {
 		t.Errorf("notice = %q, is missing the stale-catalog warning (dropped on the ErrNoAPIKey branch)", joined)
 	}
 }
+
+// The sort is persisted on the same terms as the filters: a remembered view,
+// saved whether or not the session launched.
+//
+// toolsOnly:true is not decoration — it is config.defaults(), so the filters
+// this session reports are byte-identical to the ones it started with and the
+// ONLY thing dirty is the sort. Without it the filters differ too and a dirty
+// check comparing filters alone carries the write, leaving the sort half of
+// that check untested.
+func TestRunPersistsTheSortWithUnchangedFilters(t *testing.T) {
+	svc, _ := newTestService(t)
+	spec := stubSpec("claude")
+	s := &script{
+		t:    t,
+		root: []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick: []pickerChoice{{
+			Kind: pickModel, ModelID: "anthropic/claude-opus-4.6",
+			Filters: filterState{
+				toolsOnly: true,
+				sort:      openrouter.Sort{Key: openrouter.SortOutput, Desc: true},
+			},
+		}},
+	}
+
+	if _, err := run(context.Background(), stubOptions(svc, spec), s.screens()); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if got := loadTestConfig(t).Sort; got != (config.Sort{Column: "output", Desc: true}) {
+		t.Errorf("saved sort = %+v, want the picker's state", got)
+	}
+}

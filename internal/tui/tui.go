@@ -108,6 +108,7 @@ type session struct {
 
 	filters      filterState
 	savedFilters config.Filters
+	savedSort    config.Sort
 
 	spec    *agent.Spec
 	modelID string
@@ -142,6 +143,7 @@ func run(ctx context.Context, opts Options, sc screens) (launch.Plan, error) {
 		ctx: ctx, opts: opts, sc: sc, cfg: cfg,
 		filters:      filterStateFrom(cfg.Filters, cfg.Sort),
 		savedFilters: cfg.Filters,
+		savedSort:    cfg.Sort,
 		refreshLeft:  opts.Refresh,
 		extra:        opts.ExtraArgs,
 		lastModelID:  cfg.LastModel,
@@ -638,35 +640,40 @@ func (s *session) warn(title string, err error) error {
 	return s.sc.notice(noticeInput{Title: title, Lines: []string{err.Error()}})
 }
 
-// finish persists the filter state and returns. It runs on every exit —
-// launch or cancel — because the picker's filters are a remembered view, not
+// finish persists the view state and returns. It runs on every exit — launch
+// or cancel — because the picker's filters and sort are a remembered view, not
 // a property of a successful launch.
 func (s *session) finish(p launch.Plan, err error) (launch.Plan, error) {
-	if perr := s.persistFilters(); perr != nil {
+	if perr := s.persistView(); perr != nil {
 		// Best effort: this is the last thing on screen, and a failure to
 		// show it must not mask the real result.
 		_ = s.sc.notice(noticeInput{
-			Title: "Could not save the filter settings",
+			Title: "Could not save the filter and sort settings",
 			Lines: []string{perr.Error()},
 		})
 	}
 	return p, err
 }
 
-// persistFilters writes the filter state if it changed, re-reading the config
-// first. The re-read is not boilerplate: ctrl+s can add a profile during the
-// very session whose filters are being written, and saving a config captured
-// at start would delete it. launch.recordSelection re-reads for the same
-// reason.
-func (s *session) persistFilters() error {
-	next := s.filters.persisted()
-	if next == s.savedFilters {
+// persistView writes the filter and sort state if either changed, re-reading
+// the config first. The re-read is not boilerplate: ctrl+s can add a profile
+// during the very session whose view state is being written, and saving a
+// config captured at start would delete it. launch.recordSelection re-reads
+// for the same reason.
+//
+// Both halves are in the dirty check. Comparing only the filters would drop a
+// session that changed nothing but the ordering — the exact case
+// TestRunPersistsTheSortWithUnchangedFilters sets up.
+func (s *session) persistView() error {
+	filters, sortBy := s.filters.persisted(), s.filters.persistedSort()
+	if filters == s.savedFilters && sortBy == s.savedSort {
 		return nil
 	}
 	cfg, err := config.Load()
 	if err != nil {
 		return err
 	}
-	cfg.Filters = next
+	cfg.Filters = filters
+	cfg.Sort = sortBy
 	return config.Save(cfg)
 }

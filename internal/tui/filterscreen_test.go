@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 )
 
@@ -198,5 +199,73 @@ func TestFilterScreenMatchCountHonoursTheSearch(t *testing.T) {
 	if got := m.matches(); got != 1 {
 		t.Errorf("matches = %d with the search %q active, want 1; the count ignores the search",
 			got, "o1")
+	}
+}
+
+func TestFilterScreenTitleAndRowsCoverSorting(t *testing.T) {
+	view := filterScreenFixture().View()
+	for _, want := range []string{
+		"Filter & Sort",
+		"Sort by", "relevance", "order the table by this column",
+		"Direction", "ascending", "which end of the sort comes first",
+	} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view is missing %q:\n%s", want, view)
+		}
+	}
+}
+
+// The two sort rows must be wired to DIFFERENT fields of the same struct — a
+// cycle func pointing at the wrong one is the mistake this screen's table
+// shape makes easy.
+func TestFilterScreenCyclesTheSortRows(t *testing.T) {
+	m := filterScreenFixture()
+
+	// Down to "Sort by", then space: relevance -> MODEL.
+	for i := 0; i < 4; i++ {
+		next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(filterScreenModel)
+	}
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	m = next.(filterScreenModel)
+	if m.filters.sort.Key != openrouter.SortModel {
+		t.Fatalf("space on Sort by gave %q, want model", m.filters.sort.Key)
+	}
+
+	// Down to "Direction", then space: ascending -> descending.
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+	m = next.(filterScreenModel)
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	m = next.(filterScreenModel)
+	if !m.filters.sort.Desc {
+		t.Fatal("space on Direction did not flip to descending")
+	}
+	if m.filters.sort.Key != openrouter.SortModel {
+		t.Errorf("Direction moved the column to %q — both rows edit the same field",
+			m.filters.sort.Key)
+	}
+
+	// enter carries both edits back.
+	next, _ = m.handleKey(tea.KeyMsg{Type: tea.KeyEnter})
+	m = next.(filterScreenModel)
+	if !m.choice.Applied ||
+		m.choice.Filters.sort != (openrouter.Sort{Key: openrouter.SortModel, Desc: true}) {
+		t.Errorf("enter returned sort %+v, applied=%v", m.choice.Filters.sort, m.choice.Applied)
+	}
+}
+
+func TestFilterScreenCancelDiscardsSortEdits(t *testing.T) {
+	opened := filterState{sort: openrouter.Sort{Key: openrouter.SortContext}}
+	m := filterScreenFixtureWith(opened)
+	for i := 0; i < 4; i++ {
+		next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+		m = next.(filterScreenModel)
+	}
+	next, _ := m.handleKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(" ")})
+	m = next.(filterScreenModel)
+
+	final, _ := m.cancel()
+	if got := final.(filterScreenModel).choice.Filters.sort; got != opened.sort {
+		t.Errorf("cancel leaked the sort edit: %+v, want %+v", got, opened.sort)
 	}
 }

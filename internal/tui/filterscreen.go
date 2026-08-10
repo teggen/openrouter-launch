@@ -8,15 +8,20 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
-// filterRow is one line of the filters screen.
+// filterRow is one line of the filter&sort screen.
 //
-// Declared as a table rather than a switch so that adding a fifth filter is a
-// table entry — label, explanation, how to render it, how to advance it — and
-// cannot half-land as a key binding with no explanation next to it. That
-// explanation is the whole reason this screen exists: the chords it replaced
-// were named in a footer and defined nowhere.
+// Declared as a table rather than a switch so that adding a row is a table
+// entry — label, explanation, how to render it, how to advance it — and cannot
+// half-land as a key binding with no explanation next to it. That explanation
+// is the whole reason this screen exists: the chords it replaced were named in
+// a footer and defined nowhere.
+//
+// The last two rows configure the ordering rather than the filtering. They
+// share the shape deliberately: one cursor, one editing key, and no row that
+// behaves unlike its neighbours.
 type filterRow struct {
 	label   string
 	explain string
@@ -60,6 +65,26 @@ var filterRows = []filterRow{{
 		return openrouter.FormatPrice(f.maxPrice, false) + "/M"
 	},
 	cycle: func(f *filterState) { f.maxPrice = nextPrice(f.maxPrice) },
+}, {
+	label:   "Sort by",
+	explain: "order the table by this column",
+	// ui.SortLabel, so the row names the column with the table's own header
+	// and a rename cannot leave the two disagreeing.
+	value: func(f filterState) string { return ui.SortLabel(f.sort.Key) },
+	cycle: func(f *filterState) { f.sort.Key = nextSortKey(f.sort.Key) },
+}, {
+	// Shown even while Sort by is "relevance", where it does nothing: hiding
+	// it would make the screen's row list depend on its own state, and the
+	// explanation stands on its own either way.
+	label:   "Direction",
+	explain: "which end of the sort comes first",
+	value: func(f filterState) string {
+		if f.sort.Desc {
+			return "descending"
+		}
+		return "ascending"
+	},
+	cycle: func(f *filterState) { f.sort.Desc = !f.sort.Desc },
 }}
 
 // onOff renders a boolean filter. The active state is capitalised so a glance
@@ -196,7 +221,7 @@ func (m *filterScreenModel) moveCursor(delta int) {
 
 func (m filterScreenModel) View() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Filters") + "\n\n")
+	b.WriteString(titleStyle.Render("Filter & Sort") + "\n\n")
 
 	// Measured rather than hard-coded, so a longer label or a wider value
 	// cannot silently run into the column on its right.
