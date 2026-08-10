@@ -162,10 +162,16 @@ Run `openrouter-launch agents` for the live list, including what is installed.
 | `openrouter-launch <agent>` | pick a model for that agent, then launch |
 | `openrouter-launch <agent> -m <slug> -- <args>` | launch directly, passing `<args>` through |
 | `openrouter-launch agents` | list launchable agents and installation status; `--all` adds the unsupported ones with their reason |
-| `openrouter-launch models` | list models; `--tools --free --provider --min-context --max-price` |
+| `openrouter-launch models` | list models; `--tools --free --provider --min-context --max-price --sort --desc` |
 | `openrouter-launch profile add\|list\|launch\|rm\|rename` | named agent+model favorites |
 | `openrouter-launch --refresh …` | bypass the cached catalog |
 | `openrouter-launch --version` | build identity |
+
+`--sort` takes `model`, `context`, `input`, `output`, or `tools`, and `--desc`
+reverses it. The interactive picker sorts by the same columns from its `ctrl+f`
+**Filter & Sort** screen, and remembers the choice between runs. Models whose
+pricing OpenRouter does not report show `?` and sort last either way, so a
+cheapest-first list never opens with a price nobody knows.
 
 ## Development
 

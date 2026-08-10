@@ -15,6 +15,15 @@ in `config.json` under a new top-level `sort` key.
 
 **Tech Stack:** Go 1.25, cobra, bubbletea 1.3.x, lipgloss/table.
 
+**Executed 2026-08-10.** Four deviations, all forced by mutation checks that
+the plan's own tests initially failed to catch, and all recorded in Landmine
+38: the Task 1 fixture needed asymmetric input/output prices (the planned one
+could not tell the two comparators apart), the stability probe needed
+scrambled key groups rather than one all-equal run, `TestRunPersistsTheSort`
+needed `toolsOnly: true` so the filters were genuinely unchanged, and the
+planned `TestPickerFooterAdvertisesFilterAndSort` was folded into the existing
+`TestPickerFooterAdvertisesCtrlFAndNoAltChord` rather than added beside it.
+
 ## Global Constraints
 
 - Spec: `docs/superpowers/specs/2026-08-10-models-sort-design.md`. Read it for

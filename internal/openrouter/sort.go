@@ -114,5 +114,7 @@ func lessBy(k SortKey) func(a, b Model) bool {
 	case SortTools:
 		return func(a, b Model) bool { return !a.SupportsTools && b.SupportsTools }
 	}
-	return func(a, b Model) bool { return false }
+	// An unrecognised key orders nothing. Unreachable through ParseSortKey,
+	// but SortModels takes a Sort a caller could build by hand.
+	return func(_, _ Model) bool { return false }
 }

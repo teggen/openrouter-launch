@@ -1,6 +1,6 @@
 # openrouter-launch — Handoff
 
-**Last updated:** 2026-08-09 · **State:** **listing tables landed on `develop`, unreleased.** Every listing — `orl agents` (with and without `--all`), `orl profile list`, `orl models`, and the TUI root screen — now renders as a bordered `lipgloss/table` with a dedicated status column (`✓ installed` / `✗ not installed` / `⚠ unsupported` / `⚠ unknown agent`), color auto-detected from the destination writer, and a new shared `internal/ui` package so the CLI and the TUI cannot drift. `agents --all` wraps to 100 columns instead of the 227-column line it used to emit, the root screen gained a measured scroll window because boxing pushed it past a 24-line terminal, and the TUI model picker renders the same catalog table, shedding columns on a narrow terminal. A pre-existing chrome overflow was fixed with it: the picker's key footer was a fixed 85 columns and overflowed even an 80-column terminal (Landmines 30-35). Before that: **CI/CD phase complete and `v0.1.1` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and three public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0`, then `v0.1.1`, both on `main`). All three were verified by extracting the published archive and running `--version`. `v0.1.1` is the code-scanning triage: five gosec permission findings fixed, fourteen dismissed as false positives, **zero open alerts** (Landmine 29). This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
+**Last updated:** 2026-08-10 · **State:** **the models table sorts, on `develop`, unreleased.** Every catalog column is sortable — MODEL, CONTEXT, INPUT/M, OUTPUT/M, TOOLS — from the picker's `ctrl+f` screen (renamed **Filter & Sort**, two new rows: *Sort by* and *Direction*) and from `orl models --sort <col> [--desc]`. The ordering primitive is `openrouter.SortModels` (`internal/openrouter/sort.go`), shared by both surfaces, stable, and composed OUTSIDE `Rank` so a chosen column beats search relevance; models with unparseable pricing sort last in BOTH directions (Landmine 38). The choice persists under a new top-level `sort` key in `config.json`. Shipped with it: the price columns are retitled **INPUT/M** and **OUTPUT/M** (the `Model` fields keep OpenRouter's `pricing.prompt`/`pricing.completion` wire names). Before that: **listing tables landed on `develop`, unreleased.** Every listing — `orl agents` (with and without `--all`), `orl profile list`, `orl models`, and the TUI root screen — now renders as a bordered `lipgloss/table` with a dedicated status column (`✓ installed` / `✗ not installed` / `⚠ unsupported` / `⚠ unknown agent`), color auto-detected from the destination writer, and a new shared `internal/ui` package so the CLI and the TUI cannot drift. `agents --all` wraps to 100 columns instead of the 227-column line it used to emit, the root screen gained a measured scroll window because boxing pushed it past a 24-line terminal, and the TUI model picker renders the same catalog table, shedding columns on a narrow terminal. A pre-existing chrome overflow was fixed with it: the picker's key footer was a fixed 85 columns and overflowed even an 80-column terminal (Landmines 30-35). Before that: **CI/CD phase complete and `v0.1.1` is released** — the project has a Makefile, GitHub Actions CI, tag-driven GoReleaser releases, a README, an MIT licence, and three public releases (`v0.1.0-beta.1` prerelease on `develop`, then `v0.1.0`, then `v0.1.1`, both on `main`). All three were verified by extracting the published archive and running `--version`. `v0.1.1` is the code-scanning triage: five gosec permission findings fixed, fourteen dismissed as false positives, **zero open alerts** (Landmine 29). This sits on top of Phase 4 (4a + 4b), which shipped all eight Tier 2 launchers (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); pi/hermes/cline live-verified, the other five doc-verified-only — their live gates were skipped by owner decision, droid's routing proof most importantly (see Open items)
 
 Read this first if you are picking the project up with no prior context.
 
@@ -29,12 +29,12 @@ principle** and it is the design's central claim — see Landmine 6.
 | Repo | `github.com/teggen/openrouter-launch` (HTTPS remote, `gh` credential helper) |
 | Branch | `develop` is the working branch; `main` holds released code. (Through Phase 4b this was direct-to-main with no branches at all — that changed when CI landed.) |
 | Phase 1 | Complete: 27 commits, 137 tests, ~1,570 LOC + ~2,510 test LOC |
-| Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt. Filters moved to a `ctrl+f` screen on 2026-08-10 — see Landmine 37. |
+| Phase 2 | Complete: root screen, model picker, filters, profile save, API-key prompt. Filters moved to a `ctrl+f` screen on 2026-08-10 (Landmine 37); that screen became **Filter & Sort** later the same day when column sorting landed (Landmine 38). |
 | Phase 3 | Complete: codex + opencode launchers, Tier 3 registry, live-verified against OpenRouter |
 | Phase 4a | Complete: six Tier 2 launchers — pi, hermes, qwen, cline, kimi, omp — plus shared passthrough-conflict helpers (`internal/agent/args.go`) and the `CredentialShadowCheck` advisory capability (`WarnShadowedCredential`). Live-gated end to end through the built binary: pi, hermes, cline (Task 9). Doc-verified-only, gate skipped by owner scope: qwen, kimi, omp. **Five of the six are zero-touch; cline is not, as of 2026-08-09** — env-only delivery cannot configure an interactive cline session, and its Task 9 gate could not see that because it ran one-shot prompts against a virgin `~/.cline` (both conditions hide the two mechanisms; see Landmine 36). cline is now `-k` on argv plus a snapshot/restore `ConfigWriter` (write site 5). |
 | Phase 4b | Complete: the `Staged` capability (write site #3, launcher-owned files, boundary-checked in `stageFiles`), `openclaw` (a `Staged` consumer sharing omp's `openrouter/`-prefix dialect), the fork-and-wait launch path (`agent.RunWait` + `launch.launchConfigWriter`), and `droid` (the first `ConfigWriter`, write site #4, marker-owned entry in `~/.factory/settings.local.json`). Task 5's live gates for both new agents were skipped by owner decision (2026-08-09) — openclaw and droid ship doc-verified-only, same posture as qwen/kimi/omp. **Tier 2 is now complete: all eight agents shipped.** |
-| Tests | **519** total, verified by both counting methods below. The filters-screen change (Landmine 37) added 23 net: 2 for `escLatch`, +7/−6 on the picker (three `ctrl+f` cases, the split chord, the deferred esc, the footer, and the alt chords collapsing into one inertness test, against the five alt-chord tests deleted), 11 for the filters screen, 4 driver tests for the `ctrl+f` round trip, and 5 headless `liveScreens` tests (the split-read regression, the raw 0x06 ctrl+f byte, and three for the new closure). It was **496** before — this row said 495, which was off by one and is corrected here; both counting methods now agree on 519. The cline `-k` fix (Landmine 36) added 6 net — 7 new (argv key, the `ConfigWriter` assertion, four `Apply`/restore cases) minus the deleted `TestClineShadowedCredential`, whose premise the fix invalidated. It was 489 before. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
-| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.2% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-10 after the filters-screen change (Landmine 37); last confirmed in GitHub Actions on run `31338565751` (all six jobs, Windows included) and again by the `v0.2.0` release workflow. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual — and cline's own gate is now interactive, per Landmine 36. |
+| Tests | **544** total, verified by both counting methods below. The models-table sort added 25: 7 in `internal/openrouter` (the five columns in both directions, unknown-pricing-last, stability, no-mutation, the zero Sort, `ParseSortKey`, `SortKeys`), 2 in `internal/ui` (the header rename, `SortLabel` against `ModelHeaders`), 1 in `internal/config`, 2 in `internal/launch` (`SortFrom` degrading, `MergeSort`'s changed-predicate), 4 in `internal/cli` (`--sort output` both directions, the rejected typo, the tolerated bad config value, the persisted sort), and 9 in `internal/tui` (3 filter-state, 2 picker — composition outside `Rank` and surviving a search edit, 3 filter&sort screen, 1 driver persistence). It was **519** before. Earlier: the filters-screen change (Landmine 37) added 23 net: 2 for `escLatch`, +7/−6 on the picker (three `ctrl+f` cases, the split chord, the deferred esc, the footer, and the alt chords collapsing into one inertness test, against the five alt-chord tests deleted), 11 for the filters screen, 4 driver tests for the `ctrl+f` round trip, and 5 headless `liveScreens` tests (the split-read regression, the raw 0x06 ctrl+f byte, and three for the new closure). It was **496** before — this row said 495, which was off by one and is corrected here; both counting methods now agree on 519. The cline `-k` fix (Landmine 36) added 6 net — 7 new (argv key, the `ConfigWriter` assertion, four `Apply`/restore cases) minus the deleted `TestClineShadowedCredential`, whose premise the fix invalidated. It was 489 before. The listing-tables change added 30 net — the CLI/root-screen pass added 26 (10 `internal/ui`, 11 `internal/cli`, 5 `internal/tui`), then the picker pass added 4 more and moved three catalog-rendering tests from `internal/tui` to `internal/ui` with `ModelCells`, the chrome-overflow fix added 4, and the Windows fix added 1 (`TestTestHomeIsolatesTheHomeDirectoryOnEveryPlatform`). It was 454 before. Earlier history: 454, 452 after the code-scanning triage (which added 4 permission tests: config dir, cache file+dir, staged-file dir, `~/.factory`); the `agents` listing change then added 3 CLI tests and 1 TUI test and **deleted 2 TUI tests** whose contract it reversed — the first drop in the tui count since Phase 3. Count with `go test ./... -list '.*' \| grep -c '^Test'` (or `grep -rc '^func Test' --include='*_test.go' .` — both agree). 436 when the CI/CD phase started; it added 12 (`internal/version` ×3, Makefile contract, workflow pins ×3, GoReleaser, tag guard ×2, gosec analysis guard ×2). The "432" this row used to claim was accurate at the Phase 4 handoff and went stale before the phase began; "446" (the count as of the final fix wave's own handoff) went stale within that same commit, since the fix wave's `gosecguard_test.go` added the two gosec-guard tests it is counted from. |
+| Verification | `make ci` is the one command — fmt, vet, lint (3 GOOS), actionlint on the workflows, tidy, cross-build, security, race, 86.2% coverage vs an 80% floor, and the Landmine 8 isolated run. Green locally 2026-08-10 after the models-table sort (86.6% coverage vs the 80% floor) and, before it, after the filters-screen change (Landmine 37); last confirmed in GitHub Actions on run `31338565751` (all six jobs, Windows included) and again by the `v0.2.0` release workflow. It is the *mechanical* gate only; the live-API smoke test under "Verify the tree is sound" is manual — and cline's own gate is now interactive, per Landmine 36. |
 | Agents shipped | claude, codex, opencode, plus all eight Tier 2 agents (pi, hermes, qwen, cline, kimi, omp, openclaw, droid); 3 desktop apps (chatgpt, claude-desktop, hermes-desktop) registered unsupported |
 | CI | `.github/workflows/ci.yml` — quality, audit, three-OS test matrix (**all three blocking** as of 2026-08-09: Windows' 19 platform-fixture failures are closed and its `experimental` flag is off), machine-independence; all branches |
 | Releases | tag-driven via GoReleaser; six 64-bit targets; stable tags on `main`, `-beta.N` on `develop`, guard-enforced. **Shipped: `v0.1.0-beta.1` (Pre-release), `v0.1.0`, `v0.1.1`, and `v0.2.0` (Latest)**, all 2026-08-09, six archives + `checksums.txt` each. `v0.1.1` and `v0.2.0` both went straight to stable with no beta (owner decision), so on each only ONE tag sits on the commit and the `GORELEASER_CURRENT_TAG` collision below could not arise. `v0.2.0` is a **minor** bump, not the patch first proposed: `main` had fallen 20 commits behind, so the release carried the whole listing-tables redesign (9 `feat` commits) and the Windows fixes alongside the cline `-k` fix, and the `-k` change itself rejects a passthrough flag that used to be allowed. Check what `main..develop` actually holds before picking the next number |
@@ -105,6 +105,9 @@ see Open items.
 docs/superpowers/specs/2026-08-07-openrouter-launch-design.md            the spec — read for WHY
 docs/superpowers/specs/2026-08-07-phase-2-planner-refactor-design.md     spec for the internal/launch refactor
 docs/superpowers/specs/2026-08-08-phase-2-tui-design.md                  spec for the TUI
+docs/superpowers/specs/2026-08-10-picker-filters-screen-design.md        spec for the ctrl+f filters screen and the esc latch
+docs/superpowers/specs/2026-08-10-models-sort-design.md                  spec for column sorting + the INPUT/OUTPUT rename
+docs/superpowers/plans/2026-08-10-models-sort.md                         the plan that built the sort, eight TDD tasks
 docs/superpowers/specs/2026-08-08-phase-3-agents-design.md               spec for codex/opencode + Tier 3, with live-verified values
 docs/superpowers/plans/2026-08-07-phase-1-core.md                        the Phase 1 plan
 docs/superpowers/plans/2026-08-07-phase-2-planner-refactor.md            the plan that built internal/launch
@@ -913,11 +916,55 @@ Deliberately deferred: `prompt.go` has the same text-input hazard but
 advertises no chords, so nothing invites the keypress. Design:
 `docs/superpowers/specs/2026-08-10-picker-filters-screen-design.md`.
 
+**38. Sorting composes OUTSIDE `Rank`, and unknown pricing sorts last in
+both directions.** Two independent traps in one small feature, and both
+survive a compile.
+
+*(a) Composition.* `pickerModel.recompute` is
+`SortModels(Rank(Apply(...), search), sort)`: the chosen column beats search
+relevance, and relevance survives only as the stable sort's tie-break. Moving
+`SortModels` inside `Rank`'s argument type-checks, reads identically at a
+glance, and inverts the owner's decision. `TestPickerSortAppliesOutsideRank`
+only catches that with a fixture where the two orders genuinely DISAGREE — it
+searches `"o"`, where `Rank` puts `openai/o1-mini` first (ID prefix) while
+cheapest-output puts `qwen/qwen3-coder:free` first. A fixture where they agree
+passes either way, which is this project's recurring review finding in its
+purest form.
+
+*(b) Unknown pricing.* A model with `PricingUnknown` carries `0.0` in both
+price fields and renders `?`, so a numeric comparison heads a cheapest-first
+list with models whose price is simply not known — Landmine 4's false
+"it's free" claim by a new route. `unknownLast`
+(`internal/openrouter/sort.go`) therefore runs BEFORE the `Desc` swap, which
+is why the naive version is wrong ascending and *accidentally right*
+descending; `TestUnknownPricingSortsLastWhicheverWayTheArrowPoints` asserts
+both directions for exactly that reason, and the mutation that reorders those
+two statements fails only the `desc=true` half.
+
+Two more things measured rather than assumed while building this, both of
+which had a first version that proved nothing:
+
+- **A fixture whose input and output prices rank models identically cannot
+  tell the two comparators apart.** The first `sortFixture` had prices
+  1/2, 3/9, 15/75 — monotone in both columns — and swapping
+  `PromptPricePerM` for `CompletionPricePerM` left the suite green.
+  `c/asymmetric` (cheapest input, dearest output) is what makes the columns
+  distinguishable.
+- **An all-equal tie group is not a stability probe.** With every comparison
+  false, pdqsort detects an already-ordered run and returns it untouched, so
+  `sort.Slice` passes a test built from one — at any size. `TestSortModelsIsStable`
+  uses four scrambled key groups instead, and fails under `sort.Slice`.
+
+`SortModels` returns a new slice and never sorts the caller's; the picker
+holds the catalog for the life of the session, and `Rank` copies for the same
+reason.
+
+
 ## Phase 2 — complete
 
 The TUI ships: root screen (profiles + agents), model picker with
-type-to-search and four filters, `ctrl+s` profile save, API-key prompt,
-notice screens for the planner's typed errors.
+type-to-search, four filters and a column sort, `ctrl+s` profile save,
+API-key prompt, notice screens for the planner's typed errors.
 
 Four deliberate divergences from the original design doc, all recorded in
 `docs/superpowers/specs/2026-08-08-phase-2-tui-design.md`:
@@ -926,7 +973,9 @@ Four deliberate divergences from the original design doc, all recorded in
   `alt+t/f/c/p` either.** The original key table collided with
   type-to-search: `anthropic` contains a `t`. The alt chords that replaced it
   were correct in the model but not reachable on every terminal — see
-  Landmine 37, which supersedes this and is the binding version.
+  Landmine 37, which supersedes this and is the binding version. That screen is now
+  **Filter & Sort**: it carries the column sort as two more rows of the same
+  declarative table (Landmine 38).
 - **`go 1.22` became `go 1.24`**, which bubbletea requires from v1.3.8.
 - **The API key is saved unconditionally, and the prompt says so.** The spec
   originally promised an "offer to save". There is no offer: the prompt
