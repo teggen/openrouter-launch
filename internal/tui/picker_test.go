@@ -486,8 +486,8 @@ func TestPickerShedsCatalogColumnsOnNarrowTerminals(t *testing.T) {
 	if !strings.Contains(narrow, "MODEL") {
 		t.Errorf("MODEL was dropped at 40 columns, leaving nothing to choose between: %q", narrow)
 	}
-	if strings.Contains(narrow, "COMPLETION/M") {
-		t.Errorf("a 40-column terminal kept COMPLETION/M, so nothing was shed: %q", narrow)
+	if strings.Contains(narrow, "OUTPUT/M") {
+		t.Errorf("a 40-column terminal kept OUTPUT/M, so nothing was shed: %q", narrow)
 	}
 
 	// 40 columns still fits two of the droppable columns, and even at 20 the
@@ -499,7 +499,7 @@ func TestPickerShedsCatalogColumnsOnNarrowTerminals(t *testing.T) {
 	if !strings.Contains(tiny, "MODEL") {
 		t.Errorf("MODEL was dropped once every other column had gone: %q", tiny)
 	}
-	for _, gone := range []string{"CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS"} {
+	for _, gone := range []string{"CONTEXT", "INPUT/M", "OUTPUT/M", "TOOLS"} {
 		if strings.Contains(tiny, gone) {
 			t.Errorf("a 10-column terminal kept %q: %q", gone, tiny)
 		}

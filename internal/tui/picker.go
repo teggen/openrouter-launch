@@ -346,7 +346,7 @@ const (
 // version of "give" — the alternative is letting bubbletea slice the right
 // border off and leave a table that looks broken rather than narrow.
 // MODEL is never dropped: it is the thing being chosen.
-var catalogDropOrder = []int{3, 2, 1, 4} // COMPLETION/M, PROMPT/M, CONTEXT, TOOLS
+var catalogDropOrder = []int{3, 2, 1, 4} // OUTPUT/M, INPUT/M, CONTEXT, TOOLS
 
 // modelTable renders the visible window as a bordered table, shedding
 // columns until it fits the terminal.

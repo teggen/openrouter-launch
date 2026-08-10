@@ -162,7 +162,7 @@ func TestModelsTableMarksToolSupport(t *testing.T) {
 		{ID: "a/tools", ContextLength: 200000, SupportsTools: true},
 		{ID: "a/plain", ContextLength: 128000},
 	}))
-	wantColumns(t, out, "MODEL", "CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS")
+	wantColumns(t, out, "MODEL", "CONTEXT", "INPUT/M", "OUTPUT/M", "TOOLS")
 
 	if got := tableRow(t, out, "a/tools")[4]; got != "✓" {
 		t.Errorf("tools cell = %q, want %q", got, "✓")

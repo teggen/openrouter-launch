@@ -6,7 +6,26 @@ import "github.com/teggen/openrouter-launch/internal/openrouter"
 // picker for the same reason AgentStatus is shared: two renderings of the
 // same data that drift are worse than one that is slightly less convenient
 // to build.
-var ModelHeaders = []string{"MODEL", "CONTEXT", "PROMPT/M", "COMPLETION/M", "TOOLS"}
+//
+// INPUT/OUTPUT rather than PROMPT/COMPLETION: those are OpenRouter's wire
+// names (pricing.prompt / pricing.completion) and they stay on the Model
+// fields, but the columns say what a user pays for.
+var ModelHeaders = []string{"MODEL", "CONTEXT", "INPUT/M", "OUTPUT/M", "TOOLS"}
+
+// SortLabel is the display name of a sort key: the table's own header for a
+// column, "relevance" for SortNone and for anything unrecognised.
+//
+// Positional by design — openrouter.SortKeys is declared in ModelHeaders order
+// and TestSortLabelMatchesTheTable pins that, so a renamed or reordered column
+// cannot leave the filter&sort screen naming a different one.
+func SortLabel(k openrouter.SortKey) string {
+	for i, key := range openrouter.SortKeys {
+		if key == k && i < len(ModelHeaders) {
+			return ModelHeaders[i]
+		}
+	}
+	return "relevance"
+}
 
 // ModelCells renders one catalog row, in ModelHeaders' order.
 func ModelCells(m openrouter.Model) []string {
