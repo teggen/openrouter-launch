@@ -14,6 +14,8 @@ import (
 
 func newModelsCmd(a *app) *cobra.Command {
 	var flagFilter openrouter.Filter
+	var flagSort string
+	var flagDesc bool
 
 	cmd := &cobra.Command{
 		Use:   "models [search]",
@@ -33,6 +35,17 @@ func newModelsCmd(a *app) *cobra.Command {
 				filter.Search = args[0]
 			}
 
+			// A typo on the command line is fatal, unlike the same value in
+			// the config (launch.SortFrom degrades that one): the user is
+			// standing right here, and printing catalog order would look like
+			// the sort was applied.
+			key, err := openrouter.ParseSortKey(flagSort)
+			if err != nil {
+				return err
+			}
+			sortBy := launch.MergeSort(cfg.Sort,
+				openrouter.Sort{Key: key, Desc: flagDesc}, cmd.Flags().Changed)
+
 			snap, err := a.svc.Snapshot(cmd.Context(), a.flags.refresh)
 			if err != nil {
 				return err
@@ -41,7 +54,7 @@ func newModelsCmd(a *app) *cobra.Command {
 				renderWarning(cmd, w)
 			}
 
-			models := openrouter.Apply(snap.Models, filter)
+			models := openrouter.SortModels(openrouter.Apply(snap.Models, filter), sortBy)
 			if len(models) == 0 {
 				fmt.Fprintln(cmd.OutOrStdout(), "No models match those filters.")
 				return nil
@@ -61,7 +74,11 @@ func newModelsCmd(a *app) *cobra.Command {
 	cmd.Flags().IntVar(&flagFilter.MinContext, launch.FlagMinContext, 0,
 		"minimum context window in tokens")
 	cmd.Flags().Float64Var(&flagFilter.MaxPrice, launch.FlagMaxPrice, 0,
-		"maximum USD per million completion tokens")
+		"maximum USD per million output tokens")
+	cmd.Flags().StringVar(&flagSort, launch.FlagSort, "",
+		"sort by column: model, context, input, output, tools")
+	cmd.Flags().BoolVar(&flagDesc, launch.FlagDesc, false,
+		"reverse the sort (largest, priciest, or Z-A first)")
 
 	return cmd
 }

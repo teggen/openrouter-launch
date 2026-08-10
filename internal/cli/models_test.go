@@ -194,3 +194,87 @@ func TestModelsListingEmitsNoEscapesWhenNotATerminal(t *testing.T) {
 		t.Errorf("models emitted ANSI escapes to a buffer:\n%q", got)
 	}
 }
+
+// rowOrder returns the given model IDs in the order the table printed them.
+func rowOrder(out string, ids ...string) []string {
+	var got []string
+	for _, line := range strings.Split(out, "\n") {
+		for _, id := range ids {
+			if strings.Contains(line, id) {
+				got = append(got, id)
+			}
+		}
+	}
+	return got
+}
+
+func sameOrder(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func TestModelsSortsByOutputPrice(t *testing.T) {
+	h := newHarness(t)
+
+	out := h.run(t, "models", "--tools=false", "--sort", "output")
+	want := []string{"qwen/qwen3-coder:free", "openai/o1-mini", "anthropic/claude-opus-4.6"}
+	if got := rowOrder(out, want...); !sameOrder(got, want) {
+		t.Errorf("--sort output printed %v, want %v\n%s", got, want, out)
+	}
+
+	out = h.run(t, "models", "--tools=false", "--sort", "output", "--desc")
+	rev := []string{"anthropic/claude-opus-4.6", "openai/o1-mini", "qwen/qwen3-coder:free"}
+	if got := rowOrder(out, rev...); !sameOrder(got, rev) {
+		t.Errorf("--sort output --desc printed %v, want %v\n%s", got, rev, out)
+	}
+}
+
+func TestModelsRejectsAnUnknownSortColumn(t *testing.T) {
+	h := newHarness(t)
+
+	// "prompt" is the pre-rename name of a real column, so this is the most
+	// likely typo there is — and it must not quietly print catalog order.
+	_, err := h.exec("models", "--sort", "prompt")
+	if err == nil {
+		t.Fatal("--sort prompt must error rather than silently printing catalog order")
+	}
+	if !strings.Contains(err.Error(), "output") {
+		t.Errorf("error %q does not name the valid columns", err)
+	}
+}
+
+func TestModelsToleratesAnUnknownSortColumnInTheConfig(t *testing.T) {
+	h := newHarness(t)
+	if err := config.Save(&config.Config{Sort: config.Sort{Column: "prompt"}}); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
+	// Catalog order, unchanged: a value the CLI rejects on the command line
+	// must only degrade when it comes from a file the user may not have
+	// written by hand.
+	out := h.run(t, "models")
+	want := []string{"anthropic/claude-opus-4.6", "qwen/qwen3-coder:free", "openai/o1-mini"}
+	if got := rowOrder(out, want...); !sameOrder(got, want) {
+		t.Errorf("a bad config sort changed the order: got %v, want %v\n%s", got, want, out)
+	}
+}
+
+func TestModelsUsesThePersistedSortWithNoFlag(t *testing.T) {
+	h := newHarness(t)
+	if err := config.Save(&config.Config{Sort: config.Sort{Column: "context"}}); err != nil {
+		t.Fatalf("config.Save: %v", err)
+	}
+
+	out := h.run(t, "models")
+	want := []string{"openai/o1-mini", "anthropic/claude-opus-4.6", "qwen/qwen3-coder:free"}
+	if got := rowOrder(out, want...); !sameOrder(got, want) {
+		t.Errorf("the persisted sort was ignored: got %v, want %v\n%s", got, want, out)
+	}
+}
