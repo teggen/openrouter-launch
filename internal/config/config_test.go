@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -196,5 +197,40 @@ func TestResolveAPIKeyErrorsWhenAbsent(t *testing.T) {
 	_, err := ResolveAPIKey(&Config{})
 	if !errors.Is(err, ErrNoAPIKey) {
 		t.Errorf("got %v, want ErrNoAPIKey", err)
+	}
+}
+
+func TestSortRoundTripsThroughTheConfigFile(t *testing.T) {
+	path := withTempConfig(t)
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.Sort != (Sort{}) {
+		t.Errorf("a fresh config sorts by %+v, want the zero value (relevance)", cfg.Sort)
+	}
+
+	cfg.Sort = Sort{Column: "output", Desc: true}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	for _, want := range []string{`"sort"`, `"column": "output"`, `"desc": true`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("config file is missing %s:\n%s", want, raw)
+		}
+	}
+
+	back, err := Load()
+	if err != nil {
+		t.Fatalf("Load after Save: %v", err)
+	}
+	if back.Sort != (Sort{Column: "output", Desc: true}) {
+		t.Errorf("round trip lost the sort: %+v", back.Sort)
 	}
 }

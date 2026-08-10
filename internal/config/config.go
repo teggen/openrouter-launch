@@ -23,6 +23,19 @@ type Filters struct {
 	MaxPrice   float64 `json:"max_price"`
 }
 
+// Sort is the persisted models-table ordering. The zero value is "relevance":
+// catalog order, or best-match-first while the picker's search box has text.
+//
+// Column is a plain string rather than an openrouter.SortKey on purpose. This
+// package deliberately depends on nothing else in the tree, and an
+// unrecognised value must degrade to relevance at the boundary
+// (launch.SortFrom) rather than fail a config load — a hand-edited or
+// future-version config may not make the listing unusable.
+type Sort struct {
+	Column string `json:"column,omitempty"`
+	Desc   bool   `json:"desc,omitempty"`
+}
+
 // Profile is a named agent + model favorite.
 type Profile struct {
 	Name  string   `json:"name"`
@@ -38,6 +51,7 @@ type Config struct {
 	LastAgent string    `json:"last_agent,omitempty"`
 	LastModel string    `json:"last_model,omitempty"`
 	Filters   Filters   `json:"filters"`
+	Sort      Sort      `json:"sort"`
 }
 
 // defaults returns the config used when no file exists. Tool calling is on by
