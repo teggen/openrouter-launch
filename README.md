@@ -143,14 +143,12 @@ Run `openrouter-launch agents` for the live list, including what is installed.
   not route through OpenRouter, with no warning from this tool. This has never
   been confirmed against a real qwen install; `HANDOFF.md` calls it the most
   consequential open question left after qwen's launcher shipped.
-- **The Windows test leg is advisory and currently red.** Windows is
-  cross-compiled and the suite does run there, but that CI leg is
-  `continue-on-error` and reports **19 platform-fixture failures** — Unix-shaped
-  home-dir lookups, Unix credential paths, and `0600` mode assertions Windows
-  has no permission bits to satisfy. No known logic defect sits behind any of
-  them, but "tested in CI" should not be read as "green in CI". Nobody has run
-  the binary on real Windows; exit-code propagation in particular is unverified
-  there.
+- **Nobody has run the binary on real Windows.** All three CI legs (Linux,
+  macOS, Windows) are blocking and green — the Windows platform-fixture
+  failures were fixed on 2026-08-09, not skipped — but that covers the test
+  suite, not the shipped binary. No end-to-end run (catalog fetch, interactive
+  TUI, agent launch) has happened on Windows, and exit-code propagation in
+  particular is unverified there.
 - **A model that is not `anthropic/*` under Claude Code is advisory, not
   blocked.** You get a warning and a confirm; it works for many models.
 
