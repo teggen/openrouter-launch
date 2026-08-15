@@ -140,3 +140,24 @@ func TestDecodeModelsRejectsInvalidJSON(t *testing.T) {
 		t.Error("expected error for invalid JSON")
 	}
 }
+
+// TestDecodeModelsPricingRoundsAwayFloatNoise pins the math.Round in
+// perMillion. The values are the point: 0.000015 and 0.0000011 (the fixture's
+// prices, asserted elsewhere) scale to exact binary floats and pass with the
+// rounding deleted, so neither can catch its removal. These two cannot —
+// 0.00000097 scales to 0.97000000000000008438 and 0.0000029 to
+// 2.9000000000000003553.
+func TestDecodeModelsPricingRoundsAwayFloatNoise(t *testing.T) {
+	data := []byte(`{"data":[{"id":"acme/cheap","name":"Acme: Cheap","context_length":8000,"pricing":{"prompt":"0.00000097","completion":"0.0000029"},"supported_parameters":["tools"]}]}`)
+
+	models, err := DecodeModels(data)
+	if err != nil {
+		t.Fatalf("DecodeModels: %v", err)
+	}
+	if got := models[0].PromptPricePerM; got != 0.97 {
+		t.Errorf("prompt price = %.20g, want exactly 0.97", got)
+	}
+	if got := models[0].CompletionPricePerM; got != 2.9 {
+		t.Errorf("completion price = %.20g, want exactly 2.9", got)
+	}
+}

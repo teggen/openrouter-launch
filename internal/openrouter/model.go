@@ -81,8 +81,10 @@ func DecodeModels(data []byte) ([]Model, error) {
 }
 
 // perMillion converts a per-token USD price string to USD per million tokens,
-// reporting whether the value parsed. Rounding removes float noise so prices
-// compare exactly (0.000015 -> 15, not 15.000000000000002).
+// reporting whether the value parsed. Rounding to six decimals removes float
+// noise so prices compare, sort, and render exactly: 0.00000097 scales to
+// 0.97000000000000008438, which must be 0.97. (Not every price is noisy —
+// 0.000015 scales to exactly 15 — which is why the test pins a value that is.)
 //
 // A parse failure returns ok=false rather than an error: one malformed entry
 // must not make the whole catalog undecodable. The caller records the
