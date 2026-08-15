@@ -46,6 +46,16 @@ func newModelsCmd(a *app) *cobra.Command {
 			sortBy := launch.MergeSort(cfg.Sort,
 				openrouter.Sort{Key: key, Desc: flagDesc}, cmd.Flags().Changed)
 
+			// --desc alone cannot do anything: SortModels returns an
+			// unchanged copy for SortNone whatever Desc says. Same call as
+			// the ParseSortKey typo above — the user is standing right here,
+			// and printing catalog order would look like the flag applied.
+			// Checked against the MERGED key, so a saved column still counts.
+			if sortBy.Key == openrouter.SortNone && cmd.Flags().Changed(launch.FlagDesc) {
+				return fmt.Errorf("--%s needs a sort column: add --%s (model, context, input, output, tools)",
+					launch.FlagDesc, launch.FlagSort)
+			}
+
 			snap, err := a.svc.Snapshot(cmd.Context(), a.flags.refresh)
 			if err != nil {
 				return err

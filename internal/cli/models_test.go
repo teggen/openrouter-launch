@@ -278,3 +278,37 @@ func TestModelsUsesThePersistedSortWithNoFlag(t *testing.T) {
 		t.Errorf("the persisted sort was ignored: got %v, want %v\n%s", got, want, out)
 	}
 }
+
+// TestModelsDescWithoutASortColumnErrors mirrors the --sort typo rule
+// directly above it: SortModels returns catalog order for SortNone whatever
+// Desc says, so accepting the flag would print an unsorted table that looks
+// sorted.
+func TestModelsDescWithoutASortColumnErrors(t *testing.T) {
+	h := newHarness(t)
+
+	_, err := h.exec("models", "--desc")
+	if err == nil {
+		t.Fatal("--desc with no sort column must error rather than silently printing catalog order")
+	}
+	if !strings.Contains(err.Error(), "--sort") {
+		t.Errorf("error %q does not point at the flag that fixes it", err)
+	}
+
+	// With a column it is meaningful, and must still work.
+	if _, err := h.exec("models", "--sort", "output", "--desc"); err != nil {
+		t.Errorf("--sort output --desc rejected: %v", err)
+	}
+}
+
+// TestModelsDescAloneWorksWithASavedSortColumn keeps the Task 4 guard from
+// reading the typed flags only: MergeSort merges the saved column in, so
+// --desc alone is meaningful for a user who saved one from the picker.
+func TestModelsDescAloneWorksWithASavedSortColumn(t *testing.T) {
+	h := newHarness(t)
+	if err := config.Save(&config.Config{Sort: config.Sort{Column: "output"}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.exec("models", "--desc"); err != nil {
+		t.Errorf("--desc rejected despite a saved sort column: %v", err)
+	}
+}
