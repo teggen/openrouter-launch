@@ -821,6 +821,43 @@ the prose lagged the cline amendment."
 Triage T1. GO-2026-5024 (Windows-only, not called) is the one finding
 `govulncheck` still reports.
 
+> **Status: attempted, blocked, parked (2026-08-15).** This task was run
+> exactly as written below and did not land. Step 1's own expectation held
+> only on its literal wording; Step 2's expectation — "the `go 1.25`
+> directive is untouched" — did not. `go get golang.org/x/sys@v0.44.0 && go
+> mod tidy` rewrites this module's directive from `go 1.25` to `go 1.25.0`,
+> deterministically: `go mod tidy` re-derives the directive from the maximum
+> precision found anywhere in the module graph, and `x/sys@v0.44.0`'s own
+> `go.mod` spells it with three components. `go 1.25` and `go 1.25.0` are the
+> same numeric floor, but `actions/setup-go`'s `go-version-file: go.mod`
+> resolves them differently — from setup-go v7's `docs/advanced-usage.md`:
+>
+> > The `go` directive in `go.mod` can specify a patch version or omit it
+> > altogether (e.g., `go 1.25.0` or `go 1.25`). If a patch version is
+> > specified, that specific patch version will be used. If no patch version
+> > is specified, it will search for the latest available patch version…
+>
+> All six `setup-go` invocations in this repo (`.github/workflows/ci.yml`
+> lines 44, 83, 173, 216; `.github/workflows/release.yml` lines 21, 67) have
+> no `check-latest`, so the rewrite would pin CI *and releases* to exactly
+> go1.25.0 — reintroducing the four reachable stdlib vulnerabilities
+> Landmine 25's toolchain bump had just closed — in exchange for clearing one
+> uncalled, Windows-only advisory. That is a regression, not a cleanup, so
+> the bump was reverted before commit and this task stays open. Full trace,
+> including the mechanism check against `actions/setup-go`'s own source:
+> `.superpowers/sdd/2026-08-15-external-review-fixes/task-9-report.md`. The
+> original design rationale this collides with predates this plan:
+> `docs/superpowers/plans/2026-08-09-ci-cd-makefile-readme.md:16` — "`go
+> 1.25.0` would pin CI to the oldest 1.25 patch and reproduce the very
+> problem this raise was meant to fix." The corresponding triage entry (T1
+> in `docs/superpowers/specs/2026-08-15-external-review-triage.md`) has been
+> corrected to match; it originally asserted the opposite of what Step 2
+> below proved.
+>
+> The steps below are left as originally written, as the record of the
+> rejected change — do not re-run them expecting a different outcome without
+> first re-reading the status note above.
+
 **Files:**
 - Modify: `go.mod`, `go.sum`
 
@@ -835,6 +872,12 @@ curl -s https://raw.githubusercontent.com/golang/sys/v0.44.0/go.mod
 Expected: `go 1.25.0`. If it says anything ≥ 1.26, **stop** and report — the
 bump would raise the floor and that is a separate decision.
 
+**What actually happened:** this expectation held (`x/sys@v0.44.0`'s own
+floor is `1.25.0`, not ≥ 1.26) — and it is not the whole story. The numeric
+floor is safe; what breaks is `go-version-file` resolution, which depends on
+how many components *this* module's own directive has after `go mod tidy`
+runs, not on `x/sys`'s numeric value alone. See the status note above.
+
 - [ ] **Step 2: Bump and tidy**
 
 ```bash
@@ -844,6 +887,12 @@ git diff go.mod
 ```
 Expected: only the `golang.org/x/sys` indirect line changes, and the `go 1.25`
 directive is untouched.
+
+**What actually happened:** it did not hold. `go get` printed `go: upgraded
+go 1.25 => 1.25.0` before `go mod tidy` even ran, and the rewrite survived a
+hand-revert-and-retidy. See the status note above for why that one-line diff
+is a CI and release regression, not a formatting nit — this is where the
+task was stopped and the working tree reverted.
 
 - [ ] **Step 3: Verify the advisory is gone and nothing broke**
 

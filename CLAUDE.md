@@ -14,6 +14,12 @@ TUI) are explicitly things that broke before. The build ledger under
 records why past decisions and deferrals were made — read it before
 re-litigating one.
 
+(HANDOFF.md is maintained locally and is not distributed with the
+repository, so a fresh clone or worktree will not have it. The `Landmine N`
+citations scattered through the `.go` comments still refer to its
+numbering; see the write-site table below for a tracked fallback on the one
+Critical invariant HANDOFF.md would otherwise be the sole statement of.)
+
 ## Commands
 
 ```bash
@@ -80,8 +86,12 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   configured only via env vars, inline-config env content, CLI overrides,
   or — where nothing else reaches the agent — a key on argv; never by
   writing an agent's own config files. The tree has exactly **five** write
-  sites, and all five are sanctioned — see Landmine 6's table in
-  `HANDOFF.md` for the authoritative version:
+  sites, and all five are sanctioned — the table below is that enumeration.
+  (HANDOFF.md carries the same table under Landmine 6 with more narrative
+  context, but it is a local working document, not distributed with the
+  repository; `writeSiteAllowlist` in `writesites_test.go`, referenced
+  below, is the tracked, machine-checked source of truth, reachable even
+  without it.)
 
   | # | File | What it writes |
   |---|---|---|

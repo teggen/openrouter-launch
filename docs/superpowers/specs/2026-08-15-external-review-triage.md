@@ -41,8 +41,37 @@ in two directions:
 
 One informational finding survives and is not reachable: GO-2026-5024 in
 `golang.org/x/sys v0.36.0` (Windows-only, fixed in v0.44.0, not called).
-`x/sys@v0.44.0` declares `go 1.25.0`, so bumping it does **not** disturb the
-Landmine 25 floor.
+
+**Correction, same day, after a later task tried the bump: the claim above
+was backwards.** `x/sys@v0.44.0` declares `go 1.25.0` (three components),
+and `go get golang.org/x/sys@v0.44.0 && go mod tidy` rewrites *this*
+module's own directive from `go 1.25` to `go 1.25.0` to match — `go mod
+tidy` re-derives the directive from the maximum precision anywhere in the
+module graph, so hand-reverting to `go 1.25` and re-running `tidy` reproduces
+the same rewrite every time. `go 1.25` and `go 1.25.0` name the same
+numeric floor, but `actions/setup-go` resolves them differently. From
+setup-go v7's `docs/advanced-usage.md`:
+
+> The `go` directive in `go.mod` can specify a patch version or omit it
+> altogether (e.g., `go 1.25.0` or `go 1.25`). If a patch version is
+> specified, that specific patch version will be used. If no patch version is
+> specified, it will search for the latest available patch version…
+
+All six `setup-go` invocations in this repo (`.github/workflows/ci.yml`
+lines 44, 83, 173, 216; `.github/workflows/release.yml` lines 21, 67) use
+`go-version-file: go.mod` with no `check-latest`, so `go 1.25` floats to the
+newest 1.25.x (today go1.25.13) while `go 1.25.0` would pin CI *and
+releases* to exactly go1.25.0 — which is affected by the same four reachable
+stdlib vulnerabilities this entry's first paragraph closed locally
+(GO-2026-6218, GO-2026-6090, GO-2026-5972, GO-2026-5026, all fixed in
+1.25.13). Trading those four back in, in CI and in every release archive, to
+clear one uncalled Windows-only advisory is a net loss. **The bump was
+therefore attempted and parked, not landed** — see Task 9 in
+`docs/superpowers/plans/2026-08-15-external-review-fixes.md` for the record
+of the attempt, and `docs/superpowers/plans/2026-08-09-ci-cd-makefile-readme.md:16`
+for the original design rationale this corrected claim briefly
+contradicted: "`go 1.25.0` would pin CI to the oldest 1.25 patch and
+reproduce the very problem this raise was meant to fix."
 
 Standing warning, unchanged: `go1.27rc3` is published. When 1.27 ships, 1.25
 stops receiving patches and the `go 1.25` floor becomes a security defect

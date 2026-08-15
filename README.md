@@ -201,7 +201,8 @@ Design docs live in `docs/superpowers/specs/`, implementation plans in
 `docs/superpowers/plans/`, and `HANDOFF.md` is the canonical project state —
 including a numbered **Landmines** list of invariants that each cost real
 debugging. Read it before changing anything that looks like it could be
-simplified.
+simplified. (HANDOFF.md is maintained locally and is not distributed with
+the repository, so a fresh clone or worktree will not have it.)
 
 ## License
 
