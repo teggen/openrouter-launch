@@ -5,3 +5,4 @@ openrouter-launch
 /gosec.sarif
 /gosec.log
 /dist/
+/HANDOFF.md

@@ -40,8 +40,8 @@ var writeSiteAllowlist = map[string]bool{
 // TestWriteSitesAreExhaustivelyEnumerated pins Landmine 6 as a regression
 // tripwire instead of leaving it as a grep a human has to remember to run:
 // it walks every non-test .go file in the module and asserts that a raw
-// write primitive appears only in the four sanctioned files above, and
-// that each of those four still has one (an entry the allowlist keeps
+// write primitive appears only in the five sanctioned files above, and
+// that each of those five still has one (an entry the allowlist keeps
 // around after its write moved elsewhere would silently understate the
 // real enumeration).
 func TestWriteSitesAreExhaustivelyEnumerated(t *testing.T) {
