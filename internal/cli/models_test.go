@@ -312,3 +312,18 @@ func TestModelsDescAloneWorksWithASavedSortColumn(t *testing.T) {
 		t.Errorf("--desc rejected despite a saved sort column: %v", err)
 	}
 }
+
+// TestModelsDescFalseWithNoSortColumnIsAccepted pins the fix for a false
+// positive the no-column guard introduced: cmd.Flags().Changed(FlagDesc) is
+// true for the explicit --desc=false form just as much as for --desc, so
+// checking Changed() alone told a user turning descending OFF to add a sort
+// column they were never asking to use. Checked against the merged
+// sortBy.Desc instead, so only a --desc that would actually do something
+// (Desc == true) demands a column; --desc=false does nothing either way and
+// must be accepted with no sort column in effect.
+func TestModelsDescFalseWithNoSortColumnIsAccepted(t *testing.T) {
+	h := newHarness(t)
+	if _, err := h.exec("models", "--desc=false"); err != nil {
+		t.Errorf("--desc=false rejected despite no sort column: %v", err)
+	}
+}

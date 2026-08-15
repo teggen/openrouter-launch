@@ -51,7 +51,12 @@ func newModelsCmd(a *app) *cobra.Command {
 			// the ParseSortKey typo above — the user is standing right here,
 			// and printing catalog order would look like the flag applied.
 			// Checked against the MERGED key, so a saved column still counts.
-			if sortBy.Key == openrouter.SortNone && cmd.Flags().Changed(launch.FlagDesc) {
+			// The trailing sortBy.Desc matters on its own: Changed(FlagDesc)
+			// is true for the explicit --desc=false form too, and a user
+			// turning descending OFF is not asking for anything a sort
+			// column could satisfy — only a merged Desc of true is a request
+			// this guard needs to reject.
+			if sortBy.Key == openrouter.SortNone && cmd.Flags().Changed(launch.FlagDesc) && sortBy.Desc {
 				return fmt.Errorf("--%s needs a sort column: add --%s (model, context, input, output, tools)",
 					launch.FlagDesc, launch.FlagSort)
 			}
