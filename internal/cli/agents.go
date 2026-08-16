@@ -62,10 +62,11 @@ func agentsTable(specs []*agent.Spec, installed func(*agent.Spec) bool, all bool
 	)
 	for _, spec := range specs {
 		// Unsupported agents (the Tier 3 desktop apps) are hidden by
-		// default — the Phase 4a decision recorded in HANDOFF.md. They stay
-		// registered, and `openrouter-launch <agent>` still reports the
-		// reason; this hides them from the listing, it does not un-register
-		// them.
+		// default — a deliberate Phase 4a decision, pinned by
+		// TestAgentsHidesUnsupportedByDefault and its --all counterpart.
+		// They stay registered, and `openrouter-launch <agent>` still
+		// reports the reason; this hides them from the listing, it does not
+		// un-register them.
 		if !spec.Status.Supported && !all {
 			continue
 		}

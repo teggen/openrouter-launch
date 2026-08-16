@@ -569,8 +569,18 @@ func (s *session) takeRefresh() bool {
 // fromPicker) never runs, so fromPicker is always true by the time
 // backState() would fall through to this function — backState() returns
 // statePicker first instead. The branch stays as defense in depth rather
-// than being removed: see HANDOFF.md item 15 for why this function must not
-// change, and do not change it here either.
+// than being removed, and this function must not be "fixed" to return the
+// error instead — that was the tempting fix for a real bug, and the wrong
+// one. With Options.Agent set there is no root to fall back to, so the
+// NotInstalledError, UnsupportedAgentError and UnsupportedPlatformError
+// branches of handlePlanError dead-ended here, got stateDone, and retreat()
+// turned that into ErrCancelled, which the CLI maps to a silent exit 0:
+// `openrouter-launch claude` reported success with Claude Code not
+// installed, while the identical condition under `-m <slug>` exited 1. The
+// fix belongs in noticeThenFatal, which ends the session with the original
+// error only when there is no root to return to. Changing rootOrDone would
+// break the legitimate retreats that also reach it — declining the confirm
+// screen, cancelling the API-key prompt — which must stay cancellations.
 func (s *session) rootOrDone() state {
 	if s.opts.Agent != nil {
 		return stateDone

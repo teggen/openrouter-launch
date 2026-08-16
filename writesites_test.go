@@ -10,16 +10,19 @@ import (
 
 // writeSitePattern matches every raw filesystem-write primitive Landmine 6
 // cares about. os.Create( is anchored on the opening paren (rather than a
-// bare \bos\.Create\b) so it cannot also match os.CreateTemp — HANDOFF.md's
-// "Verify the tree is sound" section documents a real grep revision that
-// used a looser pattern and silently missed CreateTemp hits.
+// bare \bos\.Create\b) so it cannot also match os.CreateTemp. That anchor is
+// not a nicety: an earlier revision of this check used the looser pattern and
+// silently missed every CreateTemp hit — which is the atomic-write shape
+// config.Save, writeDroidSettingsFile and writeClineProvidersFile all use, so
+// the pattern that felt more permissive in fact saw fewer of the write sites
+// it exists to find.
 var writeSitePattern = regexp.MustCompile(
 	`\bos\.WriteFile\b|\bos\.Create\(|\bos\.OpenFile\b|\bos\.MkdirAll\b|\bos\.Rename\b|\bos\.CreateTemp\b`,
 )
 
 // writeSiteAllowlist is the exhaustive Landmine 6 enumeration (amended twice
 // in Phase 4b to a four-site form, then to five when cline became a
-// ConfigWriter — see HANDOFF.md's Landmine 6 and the write-site table in
+// ConfigWriter — see the write-site table in CLAUDE.md, and the one in
 // docs/superpowers/specs/2026-08-09-phase-4-tier-2-agents-design.md): the
 // only files in the module allowed to call a raw write primitive. A write
 // primitive anywhere else in the tree is a Critical defect — an
