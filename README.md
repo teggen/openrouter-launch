@@ -141,8 +141,8 @@ Run `openrouter-launch agents` for the live list, including what is installed.
   matches the launched model slug, it may take precedence over this tool's
   `--auth-type openai` plus `OPENAI_*` configuration — the session would then
   not route through OpenRouter, with no warning from this tool. This has never
-  been confirmed against a real qwen install; `HANDOFF.md` calls it the most
-  consequential open question left after qwen's launcher shipped.
+  been confirmed against a real qwen install, and it is the most consequential
+  open question left after qwen's launcher shipped.
 - **Nobody has run the binary on real Windows.** All three CI legs (Linux,
   macOS, Windows) are blocking and green — the Windows platform-fixture
   failures were fixed on 2026-08-09, not skipped — but that covers the test
@@ -197,12 +197,12 @@ schema change, an agent dropped, or a change to the environment contract handed
 to a launched agent; **minor** — a new agent, flag, or screen; **patch** —
 fixes.
 
-Design docs live in `docs/superpowers/specs/`, implementation plans in
-`docs/superpowers/plans/`, and `HANDOFF.md` is the canonical project state —
-including a numbered **Landmines** list of invariants that each cost real
-debugging. Read it before changing anything that looks like it could be
-simplified. (HANDOFF.md is maintained locally and is not distributed with
-the repository, so a fresh clone or worktree will not have it.)
+Design docs live in `docs/superpowers/specs/` and implementation plans in
+`docs/superpowers/plans/`; read the relevant spec for *why* before changing
+*what*. The `.go` comments cite invariants as `Landmine N` — each cost real
+debugging, and each sits beside a comment explaining it. Treat them as
+binding before changing anything that looks like it could be simplified.
+`CLAUDE.md` has the fuller orientation.
 
 ## License
 

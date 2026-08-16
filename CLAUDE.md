@@ -2,23 +2,27 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Read HANDOFF.md first
+## Landmines
 
-`HANDOFF.md` is the canonical project state: current phase, working commands,
-and — most importantly — the **Landmines** section, a numbered list of
-invariants that each cost real debugging to establish. Treat every landmine
-as binding; several plausible-looking "cleanups" (unifying the two base
-URLs, merging Catalog into Cache, simplifying the one-program-per-screen
-TUI) are explicitly things that broke before. The build ledger under
-`.superpowers/sdd/` (gitignored but persistent, cited from HANDOFF.md)
-records why past decisions and deferrals were made — read it before
-re-litigating one.
+The `.go` comments cite invariants as `Landmine N` — numbered up to 38, of
+which twelve are referenced in code. Each one cost real debugging to
+establish. Treat every one as binding: several plausible-looking "cleanups"
+(unifying the two base URLs, merging `Catalog` into `Cache`, simplifying the
+one-program-per-screen TUI) are explicitly things that broke before.
 
-(HANDOFF.md is maintained locally and is not distributed with the
-repository, so a fresh clone or worktree will not have it. The `Landmine N`
-citations scattered through the `.go` comments still refer to its
-numbering; see the write-site table below for a tracked fallback on the one
-Critical invariant HANDOFF.md would otherwise be the sole statement of.)
+The numbering came from a project-state document, `HANDOFF.md`, that is no
+longer part of this repository, so a bare `Landmine N` has no lookup table to
+resolve against. That costs less than it sounds: every citation sits beside a
+comment that states the invariant and why it holds, which is where the
+reasoning was always load-bearing — the number is a cross-reference, not the
+explanation. Where you do want the original text, `git show 582c6a9:HANDOFF.md`
+still produces it as of 2026-08-15.
+
+Two tracked records outlive it, and both are worth reading before
+re-litigating a past decision: the specs and plans under
+`docs/superpowers/`, and the build ledger under `.superpowers/sdd/`
+(gitignored but persistent), which records why decisions and deferrals were
+made and what was tried.
 
 ## Commands
 
@@ -86,12 +90,9 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   configured only via env vars, inline-config env content, CLI overrides,
   or — where nothing else reaches the agent — a key on argv; never by
   writing an agent's own config files. The tree has exactly **five** write
-  sites, and all five are sanctioned — the table below is that enumeration.
-  (HANDOFF.md carries the same table under Landmine 6 with more narrative
-  context, but it is a local working document, not distributed with the
-  repository; `writeSiteAllowlist` in `writesites_test.go`, referenced
-  below, is the tracked, machine-checked source of truth, reachable even
-  without it.)
+  sites, and all five are sanctioned — the table below is that enumeration,
+  and `writeSiteAllowlist` in `writesites_test.go` is its machine-checked
+  form. This is Landmine 6, and the pair is now its whole statement.
 
   | # | File | What it writes |
   |---|---|---|
