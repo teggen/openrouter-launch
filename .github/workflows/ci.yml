@@ -39,9 +39,20 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      # `check-latest: true` is LOAD-BEARING on every setup-go step in this
+      # repo, and is the second half of the `go 1.25` directive's intent.
+      # Without it, setup-go uses whatever Go the runner image already has
+      # cached if it satisfies the directive — and a bare `1.25` is satisfied
+      # by ANY 1.25.x, including a stale one. On 2026-08-15 that resolved to
+      # go1.25.12 while the four reachable stdlib vulnerabilities published
+      # 2026-08-13 (GO-2026-6218, GO-2026-6090, GO-2026-5972, GO-2026-5026)
+      # were fixed in go1.25.13, so the audit job went red on code that had
+      # not changed. The minor-only directive alone buys nothing if the
+      # action never looks past the cache.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
       - run: make fmt-check
       - run: make vet
@@ -81,6 +92,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
       # Built with THIS job's toolchain on purpose. Prebuilt analysis
       # binaries abort on toolchain skew ("file requires newer Go version").
@@ -171,6 +183,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
       # Called directly rather than through make: GNU make is not worth
       # assuming on the Windows runner for a single command.
@@ -214,5 +227,6 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
         with:
           go-version-file: go.mod
+          check-latest: true
           cache: true
       - run: make test-isolated

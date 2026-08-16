@@ -33,8 +33,19 @@ Queried `vuln.go.dev` directly for all four: each is fixed in **both**
 `1.25.13` and `1.26.6`, and both releases exist on `go.dev/dl`. That matters
 in two directions:
 
-- CI resolves `go-version-file: go.mod` → `go 1.25` → newest 1.25.x →
-  **1.25.13**, which carries the fixes. CI was never going to go red.
+- ~~CI resolves `go-version-file: go.mod` → `go 1.25` → newest 1.25.x →
+  **1.25.13**, which carries the fixes. CI was never going to go red.~~
+  **Wrong, and disproved by the first push: CI went red on exactly this.**
+  The runner installed **go1.25.12**. With `check-latest` unset (the
+  default), setup-go uses a Go already in the runner image's tool cache
+  whenever it satisfies the directive — and a bare `1.25` is satisfied by
+  *any* 1.25.x, so it never consulted the version manifest, which did carry
+  1.25.13. The minor-only directive expresses the intent but cannot deliver
+  it alone. Fixed by adding `check-latest: true` to all six setup-go steps;
+  see the comment on `.github/workflows/ci.yml`'s `quality` job for the
+  rationale, and note this is the same assumption HANDOFF.md's `go 1.25`
+  bullet stated ("`setup-go` resolves the newest 1.25.x rather than pinning
+  the oldest") — true only with `check-latest`.
 - Locally the toolchain was upgraded to go1.26.6 on 2026-08-15. `make security`
   now exits 0 ("No vulnerabilities found"), and **`make ci` exits 0 end to
   end**. Nothing in the repo needed to change.
