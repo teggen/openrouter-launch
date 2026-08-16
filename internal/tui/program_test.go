@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -157,13 +159,127 @@ func (r *chunkReader) Read(p []byte) (int, error) {
 	return n, nil
 }
 
+// syncBuffer is the output sink every headless program writes to. It is
+// mutex-guarded rather than a bare bytes.Buffer because bubbletea's standard
+// renderer writes frames from its own goroutine: any test that reads the
+// output while the program is still running — which is the whole point of
+// waitForOutput — races with that writer. A plain bytes.Buffer passes
+// `make test` and fails `make test-race`.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+func (b *syncBuffer) Bytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	// Copy: bytes.Buffer.Bytes aliases the buffer's own storage, so handing
+	// it out unlocked would let a caller read a slice the renderer is
+	// concurrently appending to — the race this type exists to prevent,
+	// reintroduced one level down.
+	return append([]byte(nil), b.buf.Bytes()...)
+}
+
+// pipeInput is an input side a test can write to WHILE the program runs, so a
+// keystroke can be sent in response to something that rendered. The pre-filled
+// bytes.Buffer and chunkReader inputs cannot express that: their bytes are all
+// available before the program starts, so nothing can prove a frame was drawn
+// before a key was consumed.
+//
+// It delivers one Send per Read call, keeping chunkReader's property that a
+// test controls exactly where the read boundaries fall — an escape sequence
+// can still be split across reads deliberately (see the alt-chord test).
+//
+// It is additive, not a replacement: several tests depend on their input
+// reaching io.EOF, which a reader that blocks for more input never does.
+type pipeInput struct {
+	chunks chan string
+	closed chan struct{}
+	once   sync.Once
+}
+
+func newPipeInput(t *testing.T) *pipeInput {
+	t.Helper()
+	p := &pipeInput{chunks: make(chan string, 16), closed: make(chan struct{})}
+	t.Cleanup(p.Close)
+	return p
+}
+
+// Send queues one chunk, to be returned by exactly one Read call.
+func (p *pipeInput) Send(s string) { p.chunks <- s }
+
+// Close makes subsequent reads return io.EOF once the queue drains.
+func (p *pipeInput) Close() { p.once.Do(func() { close(p.closed) }) }
+
+func (p *pipeInput) Read(b []byte) (int, error) {
+	select {
+	case s := <-p.chunks:
+		return copy(b, s), nil
+	case <-p.closed:
+		// Drain anything queued before the close before reporting EOF.
+		select {
+		case s := <-p.chunks:
+			return copy(b, s), nil
+		default:
+			return 0, io.EOF
+		}
+	}
+}
+
+const (
+	// waitInterval and waitTimeout are constants rather than options because
+	// no test needs to vary them. teatest exposes WithCheckInterval and
+	// WithDuration; adding them here with no caller only gives the linter
+	// something to complain about.
+	waitInterval = 10 * time.Millisecond
+	waitTimeout  = 3 * time.Second
+)
+
+// waitForOutput blocks until pred accepts the program's output so far, or
+// fails the test on timeout.
+//
+// The predicate sees ACCUMULATED output, not the current frame: every frame
+// the renderer has written is still in the buffer. So predicates must be
+// positive — "contains X". A negative one ("no longer shows Y") cannot be
+// expressed this way, because the frame that did show Y never leaves the
+// buffer. Asserting a disappearance needs a different tool than this one.
+func waitForOutput(t *testing.T, out *syncBuffer, pred func([]byte) bool) {
+	t.Helper()
+
+	deadline := time.Now().Add(waitTimeout)
+	for {
+		if pred(out.Bytes()) {
+			return
+		}
+		if time.Now().After(deadline) {
+			// The output goes in the failure: a bare "timed out" gives a
+			// reader nothing to work from, and the frames are the evidence
+			// for why the condition never held.
+			t.Fatalf("waitForOutput: condition unmet after %s; output so far:\n%q", waitTimeout, out.String())
+		}
+		time.Sleep(waitInterval)
+	}
+}
+
 // liveScreensHeadless wires production's liveScreens — the seam between the
 // driver and the real bubbletea programs — to fake input and output, so its
 // closures run with no terminal at all. This is the thing the driver's own
 // tests (tui_test.go) cannot exercise: they wire screens to canned closures,
 // never touching runProgram, tea.NewProgram, or the option list liveScreens
 // builds for each screen.
-func liveScreensHeadless(t *testing.T, input io.Reader, output *bytes.Buffer, extra ...tea.ProgramOption) screens {
+func liveScreensHeadless(t *testing.T, input io.Reader, output *syncBuffer, extra ...tea.ProgramOption) screens {
 	t.Helper()
 	original := isTTY
 	t.Cleanup(func() { isTTY = original })
@@ -181,7 +297,7 @@ func liveScreensHeadless(t *testing.T, input io.Reader, output *bytes.Buffer, ex
 
 func TestLiveScreensPromptReturnsTheTypedValueOnEnter(t *testing.T) {
 	in := bytes.NewBufferString("sk-or-secret\r")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	value, ok, err := sc.prompt(promptInput{Title: "API key", Label: "API key", Masked: true})
@@ -202,7 +318,7 @@ func TestLiveScreensPromptReturnsTheTypedValueOnEnter(t *testing.T) {
 // never touch program.go at all.
 func TestLiveScreensPromptCtrlCReturnsErrCancelled(t *testing.T) {
 	in := bytes.NewBufferString("\x03") // ctrl+c
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	if _, _, err := sc.prompt(promptInput{Label: "Name"}); !errors.Is(err, ErrCancelled) {
@@ -212,7 +328,7 @@ func TestLiveScreensPromptCtrlCReturnsErrCancelled(t *testing.T) {
 
 func TestLiveScreensConfirmCtrlCReturnsErrCancelled(t *testing.T) {
 	in := bytes.NewBufferString("\x03")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	if _, err := sc.confirm(confirmInput{Title: "T", Question: "Launch anyway?"}); !errors.Is(err, ErrCancelled) {
@@ -222,7 +338,7 @@ func TestLiveScreensConfirmCtrlCReturnsErrCancelled(t *testing.T) {
 
 func TestLiveScreensNoticeCtrlCReturnsErrCancelled(t *testing.T) {
 	in := bytes.NewBufferString("\x03")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	if err := sc.notice(noticeInput{Title: "T"}); !errors.Is(err, ErrCancelled) {
@@ -235,7 +351,7 @@ func TestLiveScreensNoticeCtrlCReturnsErrCancelled(t *testing.T) {
 // into the user's config.
 func TestLiveScreensPromptReturnsNotSubmittedOnEsc(t *testing.T) {
 	in := bytes.NewBufferString("\x1b")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	_, ok, err := sc.prompt(promptInput{Title: "API key", Label: "API key"})
@@ -262,7 +378,7 @@ func TestLiveScreensConfirmQuestionModeAnswers(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			in := bytes.NewBufferString(c.input)
-			var out bytes.Buffer
+			var out syncBuffer
 			sc := liveScreensHeadless(t, in, &out)
 
 			got, err := sc.confirm(confirmInput{Title: "Before launching", Question: "Launch anyway?"})
@@ -281,7 +397,7 @@ func TestLiveScreensConfirmQuestionModeAnswers(t *testing.T) {
 // ever reach the buffer.
 func TestLiveScreensNoticeActuallyRuns(t *testing.T) {
 	in := bytes.NewBufferString("\r")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	if err := sc.notice(noticeInput{Title: "Distinctive Notice Title", Lines: []string{"a line"}}); err != nil {
@@ -295,7 +411,7 @@ func TestLiveScreensNoticeActuallyRuns(t *testing.T) {
 func TestLiveScreensRootReturnsTheChosenAgent(t *testing.T) {
 	spec := stubSpec("claude")
 	in := bytes.NewBufferString("\r")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.root(rootInput{
@@ -313,7 +429,7 @@ func TestLiveScreensRootReturnsTheChosenAgent(t *testing.T) {
 // program with scripted keystrokes and no terminal, headlessly.
 func TestLiveScreensPickReturnsTheHighlightedModelOnEnter(t *testing.T) {
 	in := bytes.NewBufferString("\x1b[B\r") // down, enter
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100})
@@ -325,9 +441,79 @@ func TestLiveScreensPickReturnsTheHighlightedModelOnEnter(t *testing.T) {
 	}
 }
 
+// Typing into the search box, one keystroke at a time, through a real program:
+// bytes on the wire → decode → handleKey accumulation → recompute → rendered
+// frame → enter → the closure's return. This is the exercise for pipeInput and
+// waitForOutput, and the only test that drives typing end to end.
+//
+// Scope, honestly: it is an integration test, not a uniquely-sharp regression
+// test. Two mutations were tried against it — `+=` to `=` in the search
+// accumulation (picker.go:330), and rendering the catalog only after the first
+// key — and BOTH are also caught by the model-level tests, because View is pure
+// and press()/typeRunes() already drive Update message by message. Do not treat
+// a failure here as localised: check picker_test.go first, since it will
+// usually have failed too and will say what broke more precisely.
+//
+// What it does pin that nothing else does is ordering on the wire. The catalog
+// is on screen before any input is read, and each keystroke is echoed before
+// the next is sent — intermediate frames a later frame overwrites, which only a
+// mid-run reader can see. Landmine 17 is about that echo surviving as it grows.
+//
+// The pre-filled inputs cannot express any of it: handed "qwen" in one read,
+// detectOneMsg gathers the whole run of printable bytes into a SINGLE KeyRunes
+// message (key.go:697), so the four keystrokes collapse into one.
+func TestLiveScreensPickTypesIntoTheSearchBoxOneKeystrokeAtATime(t *testing.T) {
+	in := newPipeInput(t)
+	var out syncBuffer
+	sc := liveScreensHeadless(t, in, &out)
+
+	type result struct {
+		choice pickerChoice
+		err    error
+	}
+	done := make(chan result, 1)
+	go func() {
+		choice, err := sc.pick(pickerInput{
+			Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+		})
+		done <- result{choice, err}
+	}()
+
+	contains := func(s string) func([]byte) bool {
+		return func(b []byte) bool { return bytes.Contains(b, []byte(s)) }
+	}
+
+	// Nothing has been sent yet: the catalog must already be drawn.
+	waitForOutput(t, &out, contains("anthropic/claude-opus-4.6"))
+
+	// One rune per Send, so each arrives as its own KeyRunes message, and the
+	// next is not sent until the echo proves the previous one landed.
+	for _, want := range []string{"q", "qw", "qwe", "qwen"} {
+		in.Send(want[len(want)-1:])
+		waitForOutput(t, &out, contains("search: "+want))
+	}
+
+	in.Send("\r")
+
+	select {
+	case got := <-done:
+		if got.err != nil {
+			t.Fatalf("pick: %v", got.err)
+		}
+		// Four keystrokes narrowed the catalog to one model, and enter takes
+		// it. A picker that dropped all but the last rune would search "n",
+		// which matches a different set entirely.
+		if got.choice.Kind != pickModel || got.choice.ModelID != "qwen/qwen3-coder:free" {
+			t.Errorf("choice = %+v, want the model the search narrowed to", got.choice)
+		}
+	case <-time.After(waitTimeout):
+		t.Fatal("pick did not return after the enter was sent")
+	}
+}
+
 func TestLiveScreensPickEscReturnsBackWithLiveFilters(t *testing.T) {
 	in := bytes.NewBufferString("\x1b") // esc
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	// Draining the input leaves the read loop at io.EOF, which bubbletea
@@ -361,7 +547,7 @@ func TestLiveScreensPickEscReturnsBackWithLiveFilters(t *testing.T) {
 // which is what makes Cancelled the discriminator between the two.
 func TestLiveScreensPickSurvivesAnAltChordSplitAcrossReads(t *testing.T) {
 	in := &chunkReader{chunks: []string{"\x1b", "t", "\x03"}} // ESC, t, ctrl+c
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.pick(pickerInput{
@@ -393,7 +579,7 @@ func TestLiveScreensPickSurvivesAnAltChordSplitAcrossReads(t *testing.T) {
 // hangs until the timeout instead of failing.
 func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
 	in := &chunkReader{chunks: []string{"x", "y"}} // two harmless keys
-	var out bytes.Buffer
+	var out syncBuffer
 
 	seen := 0
 	quitAfterSecondKey := func(_ tea.Model, msg tea.Msg) tea.Msg {
@@ -433,7 +619,7 @@ func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
 func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T) {
 	const altScreenSeq = "\x1b[?1049h"
 
-	var pickOut bytes.Buffer
+	var pickOut syncBuffer
 	pickSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), &pickOut)
 	if _, err := pickSC.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100}); err != nil {
 		t.Fatalf("pick: %v", err)
@@ -442,7 +628,7 @@ func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T)
 		t.Error("the picker's program did not enter the alt screen")
 	}
 
-	var filtersOut bytes.Buffer
+	var filtersOut syncBuffer
 	filtersSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), &filtersOut)
 	if _, err := filtersSC.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100}); err != nil {
 		t.Fatalf("filters: %v", err)
@@ -451,7 +637,7 @@ func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T)
 		t.Error("the filters screen's program did not enter the alt screen")
 	}
 
-	others := map[string]*bytes.Buffer{"root": {}, "prompt": {}, "confirm": {}, "notice": {}}
+	others := map[string]*syncBuffer{"root": {}, "prompt": {}, "confirm": {}, "notice": {}}
 
 	rootSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), others["root"])
 	if _, err := rootSC.root(rootInput{
@@ -488,7 +674,7 @@ func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T)
 // closure from one that returns a zero choice.
 func TestLiveScreensFiltersAppliesTheEditOnEnter(t *testing.T) {
 	in := bytes.NewBufferString(" \r") // space, enter
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
@@ -508,7 +694,7 @@ func TestLiveScreensFiltersAppliesTheEditOnEnter(t *testing.T) {
 // filterState that would silently clear the session's filters.
 func TestLiveScreensFiltersUndecidedExitCancelsWithTheOpeningFilters(t *testing.T) {
 	in := &chunkReader{chunks: []string{"x", "y"}}
-	var out bytes.Buffer
+	var out syncBuffer
 
 	seen := 0
 	quitAfterSecondKey := func(_ tea.Model, msg tea.Msg) tea.Msg {
@@ -539,7 +725,7 @@ func TestLiveScreensFiltersUndecidedExitCancelsWithTheOpeningFilters(t *testing.
 
 func TestLiveScreensFiltersCtrlCCancelsTheSession(t *testing.T) {
 	in := bytes.NewBufferString("\x03")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
@@ -563,7 +749,7 @@ func TestLiveScreensPickCtrlFByteOpensTheFiltersScreen(t *testing.T) {
 	// the passing case. A regression here surfaces as a test timeout naming
 	// this function, which is slower but honest.
 	in := bytes.NewBufferString("\x06")
-	var out bytes.Buffer
+	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.pick(pickerInput{
