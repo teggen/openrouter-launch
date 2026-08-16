@@ -151,6 +151,18 @@ Run `openrouter-launch agents` for the live list, including what is installed.
   particular is unverified there.
 - **A model that is not `anthropic/*` under Claude Code is advisory, not
   blocked.** You get a warning and a confirm; it works for many models.
+- **Do not run two launcher sessions of the same agent at once for `cline` or
+  `droid`.** These two are the agents whose own config files this tool writes
+  and then restores when the session ends. Nothing locks those files, so
+  overlapping sessions interleave their snapshot-and-restore and the second one
+  to finish puts back what the first one's session had left in place. For
+  `cline` that means your OpenRouter key stays saved in
+  `~/.cline/data/settings/providers.json` after everything exits — the exact
+  residue the restore exists to prevent. For `droid` it means
+  `~/.factory/settings.local.json` is left with its `model` pointing at a
+  `custom:openrouter-launch-*` entry that no longer exists, which you have to
+  clear by hand. Sequential sessions are fine, and so are concurrent sessions
+  of any other agent, or of one `cline` alongside one `droid`.
 
 ## Commands
 

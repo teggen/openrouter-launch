@@ -89,9 +89,28 @@ func DecodeModels(data []byte) ([]Model, error) {
 // A parse failure returns ok=false rather than an error: one malformed entry
 // must not make the whole catalog undecodable. The caller records the
 // uncertainty on the model so it is never displayed or filtered as free.
+//
+// Parsing is not enough on its own: ParseFloat accepts several strings that
+// are not prices. The endpoint sends "-1" for entries whose cost cannot be
+// stated in advance (the openrouter/auto routers), and accepts "NaN" and
+// "Inf" as a matter of Go's grammar. Each has to be rejected HERE, because
+// every downstream honesty check keys off the ok=false this returns:
+//
+//   - a negative price fails FormatPrice's ==0 test and passes its <0.005
+//     test, so it renders "<$0.01" — the Landmine 4 false claim exactly;
+//   - it also slips under any --max-price ceiling and heads an ascending
+//     price sort, while unknownLast stays silent because the flag is clear;
+//   - NaN compares false against everything, which makes lessBy's ordering
+//     relation non-transitive rather than merely wrong.
+//
+// "Unknown" is the truthful reading in the case that actually occurs: a
+// router's price genuinely is not known until the request lands somewhere.
 func perMillion(raw string) (float64, bool) {
 	v, err := strconv.ParseFloat(raw, 64)
 	if err != nil {
+		return 0, false
+	}
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 		return 0, false
 	}
 	return math.Round(v*1e6*1e6) / 1e6, true

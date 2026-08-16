@@ -102,6 +102,75 @@ func TestDecodeModelsMalformedCompletionPriceIsUnknown(t *testing.T) {
 	}
 }
 
+// TestDecodeModelsNegativePriceIsUnknown pins the "-1" sentinel the live
+// /models endpoint uses for entries whose price cannot be stated in advance:
+// as of 2026-08-16 openrouter/auto, openrouter/auto-beta, openrouter/fusion,
+// openrouter/pareto-code and openrouter/bodybuilder all send it for both
+// prompt and completion, because a router's cost depends on where the
+// request actually lands.
+//
+// ParseFloat accepts "-1", so without an explicit guard the model records a
+// negative price with PricingUnknown CLEAR, and every downstream honesty
+// check then reads it as very nearly free: FormatPrice renders "<$0.01" (a
+// negative fails the ==0 test and passes the <0.005 one), --max-price admits
+// it, and an ascending price sort heads the list with it while unknownLast
+// never fires. That is the exact false claim Landmine 4 exists to prevent,
+// reached by typing nothing more exotic than `orl models --sort input`.
+func TestDecodeModelsNegativePriceIsUnknown(t *testing.T) {
+	data := []byte(`{"data":[{"id":"openrouter/auto","name":"OpenRouter: Auto","context_length":2000000,"pricing":{"prompt":"-1","completion":"-1"},"supported_parameters":["tools"]}]}`)
+
+	models, err := DecodeModels(data)
+	if err != nil {
+		t.Fatalf("DecodeModels: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("got %d models, want 1", len(models))
+	}
+	got := models[0]
+	if !got.PricingUnknown {
+		t.Error("the -1 price sentinel should set PricingUnknown")
+	}
+	if got.IsFree() {
+		t.Error("a model priced -1 must never report as free")
+	}
+	// The recorded prices must not stay negative even with the flag set:
+	// FormatPrice is the only reader that consults the flag, while the sort
+	// comparators read the floats directly.
+	if got.PromptPricePerM != 0 || got.CompletionPricePerM != 0 {
+		t.Errorf("prices = %v/%v, want 0/0: a rejected price must not keep its negative value",
+			got.PromptPricePerM, got.CompletionPricePerM)
+	}
+	if FormatPrice(got.PromptPricePerM, got.PricingUnknown) != "?" {
+		t.Errorf("rendered %q, want %q",
+			FormatPrice(got.PromptPricePerM, got.PricingUnknown), "?")
+	}
+}
+
+// TestDecodeModelsNonFinitePriceIsUnknown closes the rest of the class the
+// -1 sentinel opens. ParseFloat also accepts "NaN", "Inf" and "Infinity"
+// (case-insensitively, with an optional sign), none of which the endpoint
+// emits today. NaN is the one worth the extra condition: every comparison
+// against it is false, so a NaN price does not merely sort wrongly, it makes
+// lessBy's ordering relation non-transitive and the sort's output arbitrary.
+func TestDecodeModelsNonFinitePriceIsUnknown(t *testing.T) {
+	for _, raw := range []string{"NaN", "Inf", "+Inf", "-Inf", "Infinity"} {
+		t.Run(raw, func(t *testing.T) {
+			data := []byte(`{"data":[{"id":"acme/odd","name":"Acme: Odd","context_length":1000,"pricing":{"prompt":"` + raw + `","completion":"0"},"supported_parameters":["tools"]}]}`)
+
+			models, err := DecodeModels(data)
+			if err != nil {
+				t.Fatalf("DecodeModels: %v", err)
+			}
+			if !models[0].PricingUnknown {
+				t.Errorf("price %q should set PricingUnknown", raw)
+			}
+			if models[0].PromptPricePerM != 0 {
+				t.Errorf("price %q recorded as %v, want 0", raw, models[0].PromptPricePerM)
+			}
+		})
+	}
+}
+
 func TestDecodeModelsMissingPricingIsUnknown(t *testing.T) {
 	data := []byte(`{"data":[{"id":"acme/bare","name":"Acme: Bare","context_length":1000}]}`)
 
