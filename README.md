@@ -199,6 +199,30 @@ prebuilt binaries break whenever your Go version moves ahead of theirs. It
 sets `GOTOOLCHAIN=auto` so Go may fetch a newer toolchain solely to *build*
 those tools; what builds and tests this project stays on the `go.mod` floor.
 
+### The launch layer is a separate module
+
+The agent registry, the eleven launchers and the planner live in
+[`github.com/teggen/agentlaunch`](https://github.com/teggen/agentlaunch), a
+dependency-free library this tool is the first consumer of. `orl` supplies the
+OpenRouter descriptor (`internal/provider`); the module supplies everything
+that knows how to configure and hand off to an agent.
+
+Working on both at once wants a Go workspace, which must stay **uncommitted**:
+
+```bash
+git clone https://github.com/teggen/agentlaunch ../agentlaunch
+cd .. && go work init ./agentlaunch ./openrouter-launch
+```
+
+The workspace makes your local checkout shadow the published module, so
+`go test ./...` here exercises your edits immediately. `make ci` deliberately
+sets `GOWORK=off` so it resolves the *tagged* version instead — that is what
+makes a green run locally the same claim CI makes. Never commit a `replace`
+directive: it passes `make tidy-check` on your machine and fails in CI.
+
+A change spanning both repositories is two commits and a tag, in order: land
+and tag the module, then `go get github.com/teggen/agentlaunch@vX.Y.Z` here.
+
 Branches: `develop` is the working branch, `main` holds released code. Stable
 tags (`vX.Y.Z`) are cut on `main`, prerelease tags (`vX.Y.Z-beta.N`) on
 `develop`; CI refuses a tag cut on the wrong branch.
