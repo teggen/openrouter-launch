@@ -1450,3 +1450,74 @@ func TestRunRequiresARegistry(t *testing.T) {
 		t.Error("run with a nil Registry returned no error")
 	}
 }
+
+// TestValidateAPIKeyRejectsControlCharacters covers the validator the key
+// prompt carries. The cases come from a Windows bug report: a stored key
+// containing a NUL made every launch die inside os/exec with "environment
+// variable contains NUL", naming neither the key nor the variable.
+//
+// The empty case is here too, so the two rules the prompt enforces are stated
+// in one place rather than one of them being implicit.
+func TestValidateAPIKeyRejectsControlCharacters(t *testing.T) {
+	for _, tc := range []struct {
+		what string
+		key  string
+		want string
+	}{
+		{"empty", "", "a key is required"},
+		{"whitespace only", "   ", "a key is required"},
+		{"NUL", "sk-or-v1-abc\x00def", "control character"},
+		// The one TrimSpace hides: it strips a trailing \r, but the value
+		// saved is the untrimmed one this validator sees.
+		{"trailing carriage return", "sk-or-v1-abc\r", "control character"},
+		{"embedded newline", "sk-or-v1-abc\ndef", "control character"},
+	} {
+		err := validateAPIKey(tc.key)
+		if err == nil {
+			t.Errorf("%s: validateAPIKey accepted it", tc.what)
+			continue
+		}
+		if !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: error %q does not mention %q", tc.what, err, tc.want)
+		}
+	}
+
+	// A real key must still pass, or the rejections above are satisfied by a
+	// validator that refuses everything.
+	if err := validateAPIKey("sk-or-v1-0a1b2c3d_4e5f-6789.abcdef"); err != nil {
+		t.Errorf("validateAPIKey rejected an ordinary key: %v", err)
+	}
+}
+
+// TestKeyPromptCarriesTheValidator is the wiring half. validateAPIKey can be
+// correct while the prompt is built with a different Validate — or none —
+// and every other test here uses a fake that bypasses Validate entirely, so
+// nothing else would notice. This reaches into the promptInput the session
+// actually passed and exercises the function it carries.
+func TestKeyPromptCarriesTheValidator(t *testing.T) {
+	svc, _ := newTestService(t)
+	t.Setenv(config.APIKeyEnvVar, "")
+
+	spec := stubSpec("claude")
+	s := &script{
+		t:      t,
+		root:   []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:   []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		prompt: []promptResult{{value: "", ok: true}},
+	}
+	_, _ = run(context.Background(), stubOptions(svc, spec), s.screens())
+
+	if len(s.promptIn) == 0 {
+		t.Fatal("the key prompt was never shown")
+	}
+	in := s.promptIn[0]
+	if in.Validate == nil {
+		t.Fatal("the key prompt carries no Validate; a pasted NUL would be saved")
+	}
+	if err := in.Validate("sk-or-v1-abc\x00def"); err == nil {
+		t.Error("the prompt's Validate accepted a key containing a NUL")
+	}
+	if err := in.Validate("sk-or-v1-0a1b2c3d"); err != nil {
+		t.Errorf("the prompt's Validate rejected an ordinary key: %v", err)
+	}
+}

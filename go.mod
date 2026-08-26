@@ -7,7 +7,7 @@ require (
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
-	github.com/teggen/agentlaunch v0.2.0
+	github.com/teggen/agentlaunch v0.3.0
 )
 
 require (

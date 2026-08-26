@@ -451,15 +451,10 @@ func (s *session) promptForAPIKey(planErr error, lines []string) (state, error) 
 		// ResolveAPIKey and the design spec's note on why saving stays
 		// unconditional. The prompt discloses that before the user types,
 		// rather than saving silently.
-		Title:  "An OpenRouter API key is needed to launch.\nIt's saved to " + keyPath + " (mode 0600).",
-		Label:  "API key",
-		Masked: true,
-		Validate: func(v string) error {
-			if strings.TrimSpace(v) == "" {
-				return errors.New("a key is required — get one at https://openrouter.ai/keys")
-			}
-			return nil
-		},
+		Title:    "An OpenRouter API key is needed to launch.\nIt's saved to " + keyPath + " (mode 0600).",
+		Label:    "API key",
+		Masked:   true,
+		Validate: validateAPIKey,
 	})
 	if err != nil {
 		return stateDone, err
@@ -672,4 +667,42 @@ func (s *session) persistView() error {
 	cfg.Filters = filters
 	cfg.Sort = sortBy
 	return config.Save(cfg)
+}
+
+// validateAPIKey is the key prompt's Validate. It is a named function rather
+// than a closure so it can be tested directly and asserted to be the one the
+// prompt carries.
+//
+// Refusing a control character here is the second half of a fix whose first
+// half is in the agent module. strings.TrimSpace does NOT strip NUL — it is
+// not whitespace — so without this a pasted key with a stray byte is accepted,
+// written to the config file (where encoding/json escapes it to \u0000 and
+// hides it completely), and only fails at the NEXT launch with the key long
+// since forgotten. A Windows user hit exactly that: launching opencode died
+// with "exec: environment variable contains NUL".
+//
+// Refused, not sanitized. Silently altering a credential trades a clear
+// message here for a 401 the user cannot explain later.
+func validateAPIKey(v string) error {
+	if strings.TrimSpace(v) == "" {
+		return errors.New("a key is required — get one at https://openrouter.ai/keys")
+	}
+	if i := strings.IndexFunc(v, isControlChar); i >= 0 {
+		return fmt.Errorf("that key contains a control character (%#02x at position %d) — "+
+			"paste it again; copying from a terminal can pick up stray bytes", v[i], i)
+	}
+	return nil
+}
+
+// isControlChar reports whether r is a control character. It mirrors the
+// agent module's rule for what an environment value may not contain: C0
+// (below 0x20) covers NUL, tab, carriage return and newline; 0x7f is DEL.
+//
+// Duplicated rather than exported from there on purpose. The module's copy is
+// what actually protects the launch and must keep working for every consuming
+// tool; this one exists so THIS tool can refuse a bad key at the moment it is
+// typed, which is the only point where the user still has the good one in
+// their clipboard.
+func isControlChar(r rune) bool {
+	return r < 0x20 || r == 0x7f
 }
