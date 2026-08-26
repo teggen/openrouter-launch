@@ -1,4 +1,4 @@
-package agent
+package provider
 
 import (
 	"os"
@@ -7,22 +7,32 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/agent"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
-// This file is the other half of the provider parameterization. Every other
-// launcher test runs against a synthetic provider, which is what proves a
-// launcher reads its Provider field instead of a constant — but a launcher
-// could read the field correctly and still be wired to the WRONG OpenRouter
-// value, and no synthetic-provider test can see that. So this one pins the
-// real thing: the exact argv and environment each agent is launched with
-// against the registry's own OpenRouter provider.
+// This file is the other half of the provider parameterization, and after the
+// extraction it is the half that had to stay behind.
+//
+// Every launcher test in github.com/teggen/agentlaunch runs against a
+// synthetic provider, which is what proves a launcher reads its Provider
+// field instead of a constant — but a launcher could read the field correctly
+// and still be wired to the WRONG OpenRouter value, and no synthetic-provider
+// test can see that. Only the tool that names the provider knows what the
+// right values are, so this test lives here: it pins the exact argv and
+// environment each agent is launched with against the registry this tool
+// actually ships.
+//
+// It builds that registry through Registry(), not through a binding of its
+// own. The distinction matters — a re-derived binding would keep passing if
+// the composition root started building a different one.
 //
 // The values below were captured from the launchers as they stood before the
 // provider descriptor existed and verified byte-for-byte against them, so a
 // failure here means an observable change to what a user's agent receives —
 // which is a major version bump by this project's own semver contract, not a
-// refactor. Neither half of the pair is sufficient alone.
+// refactor. Neither half of the pair is sufficient alone: restoring codex's
+// falsified wire_api="chat" (Landmine 18) fails ONLY this test.
 
 // goldenStageDir is the staging directory the golden request names. Its value
 // does not matter; that openclaw's config path is derived from it does.
@@ -30,6 +40,45 @@ const goldenStageDir = "/tmp/orl-golden-stage"
 
 func openclawPath(*testing.T) string {
 	return filepath.Join(goldenStageDir, "openclaw.json")
+}
+
+// testHome points every home-directory lookup reached by this test at a fresh
+// temp dir, on every platform.
+//
+// `t.Setenv("HOME", dir)` alone is NOT enough — the gap Landmine 8 did not
+// account for. os.UserHomeDir reads HOME on Unix but USERPROFILE on Windows,
+// so on Windows the agent code would keep resolving the real user's home, and
+// Droid.Apply would write ~/.factory/settings.local.json into the developer's
+// actual profile. APPDATA and LOCALAPPDATA are redirected for the same
+// reason: Hermes.findPath and Qwen.findPath consult them on Windows, so
+// leaving them pointed at the real profile lets a genuinely installed agent
+// satisfy a test that needs the binary to be absent.
+//
+// The agent package keeps its own copy of this helper. A _test.go helper
+// cannot be imported across packages, and exporting one from production code
+// to serve tests would put it in the module's public API.
+func testHome(t *testing.T) string {
+	t.Helper()
+
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)        // Unix, and anything reading it directly
+	t.Setenv("USERPROFILE", dir) // Windows: what os.UserHomeDir actually reads
+	t.Setenv("APPDATA", filepath.Join(dir, "AppData", "Roaming"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(dir, "AppData", "Local"))
+	return dir
+}
+
+// envValue finds a KEY=VALUE entry in a command's environment. It reports
+// presence separately from the value, because an empty value is meaningful
+// here: ANTHROPIC_AUTH_TOKEN present-but-empty is what stops Claude Code
+// falling back to its own Anthropic authentication (Landmine 2).
+func envValue(env []string, key string) (string, bool) {
+	for _, kv := range env {
+		if len(kv) > len(key) && kv[:len(key)] == key && kv[len(key)] == '=' {
+			return kv[len(key)+1:], true
+		}
+	}
+	return "", false
 }
 
 func TestOpenRouterLaunchSurfaceIsUnchanged(t *testing.T) {
@@ -48,7 +97,7 @@ func TestOpenRouterLaunchSurfaceIsUnchanged(t *testing.T) {
 	}
 	t.Setenv("PATH", bin)
 
-	req := Request{
+	req := agent.Request{
 		Model: catalog.Model{
 			ID: "anthropic/claude-opus-4.6", Name: "Anthropic: Claude Opus 4.6",
 			ContextLength: 200000, SupportsTools: true, Provider: "anthropic",
@@ -159,7 +208,7 @@ func TestOpenRouterLaunchSurfaceIsUnchanged(t *testing.T) {
 			},
 		}}
 
-	reg := openRouterRegistry(t)
+	reg := Registry()
 	if want := len(golden); want != len(reg.List())-3 {
 		t.Fatalf("golden covers %d launchers, registry has %d supported entries",
 			want, len(reg.List())-3)
@@ -196,7 +245,7 @@ func TestOpenRouterLaunchSurfaceIsUnchanged(t *testing.T) {
 			}
 		}
 		if g.staged != "" {
-			st, ok := spec.Launcher.(Staged)
+			st, ok := spec.Launcher.(agent.Staged)
 			if !ok {
 				t.Errorf("%s: expected a Staged launcher", g.name)
 				continue

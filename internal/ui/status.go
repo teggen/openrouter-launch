@@ -1,6 +1,6 @@
 package ui
 
-import "github.com/teggen/openrouter-launch/internal/agent"
+import "github.com/teggen/agentlaunch/agent"
 
 // The glyph is ALWAYS emitted, so a status never depends on color alone —
 // it survives NO_COLOR, a pipe, a dumb terminal, and a reader who cannot

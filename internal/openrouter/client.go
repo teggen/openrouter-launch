@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // DefaultBaseURL is the OpenRouter API root used for catalog requests.

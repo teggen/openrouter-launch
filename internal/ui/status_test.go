@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/agentlaunch/agent"
 )
 
 // stubLauncher satisfies agent.Launcher so a test can build a Spec.

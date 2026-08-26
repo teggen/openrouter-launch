@@ -12,11 +12,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/catalog"
-	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
-	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/agentlaunch/agent"
+	"github.com/teggen/agentlaunch/catalog"
+	"github.com/teggen/agentlaunch/catalog/catalogtest"
+	"github.com/teggen/agentlaunch/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/provider"
 	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
@@ -61,7 +62,7 @@ func newHarnessWith(t *testing.T, source catalog.Catalog) *harness {
 	// without configuring tuiPlan would otherwise have handoff call Launch on
 	// a zero-value launch.Plan, and recordSelection would dereference
 	// p.Spec.Name and panic. Cancelling is the safe default outcome.
-	h := &harness{tuiErr: tui.ErrCancelled, reg: openRouterRegistry()}
+	h := &harness{tuiErr: tui.ErrCancelled, reg: provider.Registry()}
 	// newService is the production wiring, so these tests exercise the real
 	// cache, the real settings store and the real config dir — only the
 	// catalog source and the process handoff are substituted.

@@ -3,8 +3,8 @@ package tui
 import (
 	"errors"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/agent"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // stubLauncher stands in for a real agent so tests never depend on what is

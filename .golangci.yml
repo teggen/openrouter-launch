@@ -37,9 +37,13 @@ linters:
       # destination, so this would also swallow a genuine unchecked
       # fmt.Fprintf(f, …) to a real file opened inside internal/cli. Nothing
       # in errcheck can distinguish the two. The compensating control is
-      # TestWriteSitesAreExhaustivelyEnumerated (writesites_test.go), which
-      # fails if any write primitive appears outside the four sanctioned
-      # sites — none of which are in internal/cli (Landmine 6).
+      # TestWriteSitesAreExhaustivelyEnumerated (writesites_test.go, THIS
+      # module), which fails if a write primitive appears outside this
+      # repository's two sanctioned sites — neither of which is in
+      # internal/cli. Landmine 6's other three sites now live in
+      # github.com/teggen/agentlaunch; they are covered from here by
+      # TestDependencyWriteSitesAreExhaustivelyEnumerated in the same file,
+      # and in that module by its own copy of the walk.
       - path: internal/cli/
         linters:
           - errcheck
@@ -64,24 +68,14 @@ linters:
           - revive
         text: '^unused-parameter:'
 
-      # Landmine 24: a ConfigWriter agent (droid) deliberately does NOT take
-      # the syscall.Exec handoff — RunWait forks and waits so restore() can
-      # run afterwards. The child is an interactive agent session that lasts
-      # as long as the user wants it to, and its cancellation path is the
-      # documented SIGINT/SIGTERM forwarding a few lines below, not a
-      # context. Switching to CommandContext would add a cancellation
-      # mechanism that could kill a live session and would change the
-      # fork-and-wait contract the Landmine pins.
-      #
-      # Covers exec_windows.go too: it is the Windows substitute for the
-      # syscall.Exec handoff and earns the same rationale. Note that lint is
-      # GOOS-SENSITIVE — a build-tagged file is invisible to the gate on
-      # every other platform, so `make lint` alone never sees that site.
-      # CI must run the linter under GOOS=windows and GOOS=darwin as well.
-      - path: internal/agent/exec_(wait|windows)\.go
-        linters:
-          - noctx
-        text: os/exec\.Command must not be called
+      # NOTE: the Landmine 24 noctx exclusion that used to sit here is GONE
+      # on purpose, not lost. It covered
+      # internal/agent/exec_(wait|windows).go — the fork-and-wait handoff a
+      # ConfigWriter agent takes instead of syscall.Exec — and those files
+      # now live in github.com/teggen/agentlaunch, which carries the
+      # exclusion and its full rationale in its own .golangci.yml. Leaving a
+      # stale path here would be worse than useless: it matches nothing, so
+      # it reads as coverage while providing none.
 
       # QF1001 is a style quickfix, not a defect check. The flagged site
       # asserts a three-way ordering — `!(a < b && b < c)` says "not in the

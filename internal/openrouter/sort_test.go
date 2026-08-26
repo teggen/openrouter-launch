@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // sortFixture is deliberately in NO column's sorted order, so a comparator

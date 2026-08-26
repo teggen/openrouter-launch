@@ -6,7 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
+	"github.com/teggen/agentlaunch/catalog/catalogtest"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 

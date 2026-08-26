@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 

@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // Rank returns the models matching query, best match first. An empty query

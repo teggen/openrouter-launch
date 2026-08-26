@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/agentlaunch/launch"
 )
 
 // TestNewRootCmdWithPanicsOnNilService pins that a nil *launch.Service is

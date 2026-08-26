@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/agentlaunch/agent"
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )

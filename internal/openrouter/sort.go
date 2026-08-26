@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // SortKey names a catalog column to order by. The zero value means "do not

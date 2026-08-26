@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/agent"
+	"github.com/teggen/agentlaunch/catalog"
+	"github.com/teggen/agentlaunch/launch"
 	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/launch"
 )
 
 // ErrCancelled reports that the user backed out. The CLI maps it to a silent

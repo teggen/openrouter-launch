@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 func loadFixture(t *testing.T) []catalog.Model {

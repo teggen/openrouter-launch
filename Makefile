@@ -248,5 +248,20 @@ pre-commit: clean fmt-check vet lint security test ## The /quality gate
 # file class in this repo with an AUTOMATED editor (Dependabot bumps action
 # SHAs weekly) and, until now, no automated validator: actionlint was pinned
 # and installed by `make tools`, but nothing ever ran it.
+# GOWORK=off is LOAD-BEARING, and target-specific so it reaches every
+# prerequisite below.
+#
+# github.com/teggen/agentlaunch is developed alongside this repo, and
+# ~/projects/go.work makes the local checkout shadow the published module for
+# every go command. That is what you want while editing both — and it means a
+# plain `make ci` can pass against source that exists only on this machine.
+# CI has no workspace, so it resolves the tagged version from the proxy
+# instead, and the two can differ silently: an API change made locally and
+# never tagged goes green here and red there.
+#
+# Turning the workspace off for this target makes `make ci` the same claim CI
+# makes. `make test` and the rest deliberately keep the workspace, because
+# editing both modules together is the reason it exists.
 .PHONY: ci
-ci: fmt-check vet lint lint-cross lint-workflows tidy-check cross security test-race cover-check test-isolated ## Everything CI runs
+ci: export GOWORK := off
+ci: fmt-check vet lint lint-cross lint-workflows tidy-check cross security test-race cover-check test-isolated ## Everything CI runs (against the TAGGED dependency, not the workspace)

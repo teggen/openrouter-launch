@@ -6,11 +6,12 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/agent"
+	"github.com/teggen/agentlaunch/catalog"
+	"github.com/teggen/agentlaunch/launch"
 	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/provider"
 	"github.com/teggen/openrouter-launch/internal/tui"
 	"github.com/teggen/openrouter-launch/internal/version"
 )
@@ -34,22 +35,6 @@ type app struct {
 	reg     *agent.Registry
 	flags   *globalFlags
 	openTUI tuiFunc
-}
-
-// openRouterRegistry binds the built-in agents to OpenRouter. This is the
-// composition root: it is the one place in the tree that names a provider,
-// which is what a second tool built on the same agents would replace.
-//
-// MustRegistry is right here for the same reason NewRootCmdWith panics on a
-// nil Service — a malformed registry is a programmer error in a literal, and
-// the whole binary is unusable, so failing at construction beats failing at
-// the first launch. agent.NewRegistry returns an error instead, because a
-// library must not panic on a caller's slice.
-func openRouterRegistry() *agent.Registry {
-	return agent.MustRegistry(agent.Binding{
-		Provider: agent.OpenRouter,
-		Host:     agent.OpenRouterHost,
-	}, agent.Builtins())
 }
 
 // newService builds the launch service this tool runs on.
@@ -83,7 +68,7 @@ func NewRootCmd() *cobra.Command {
 // a constructor rather than a package-level variable so tests get an
 // isolated command tree, wired to their own service, on every call.
 func NewRootCmdWith(svc *launch.Service) *cobra.Command {
-	return newRootCmd(svc, openRouterRegistry(), tui.Run)
+	return newRootCmd(svc, provider.Registry(), tui.Run)
 }
 
 func newRootCmd(svc *launch.Service, reg *agent.Registry, openTUI tuiFunc) *cobra.Command {

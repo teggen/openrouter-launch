@@ -16,7 +16,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 type apiPricing struct {

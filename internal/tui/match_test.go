@@ -3,7 +3,7 @@ package tui
 import (
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 func ids(models []catalog.Model) []string {

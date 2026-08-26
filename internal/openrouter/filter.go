@@ -3,7 +3,7 @@ package openrouter
 import (
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 // Filter narrows the catalog. Zero values mean "no constraint".

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/agentlaunch/catalog"
 )
 
 type stubCatalog struct {
