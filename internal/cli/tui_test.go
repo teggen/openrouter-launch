@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/launch"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
@@ -116,7 +116,7 @@ func TestAnApprovedPlanIsHandedOff(t *testing.T) {
 	h.tuiErr = nil
 	h.tuiPlan = launch.Plan{
 		Spec:    h.mustLookup(t, "claude"),
-		Model:   openrouter.Model{ID: "anthropic/claude-opus-4.6"},
+		Model:   catalog.Model{ID: "anthropic/claude-opus-4.6"},
 		Command: agent.Command{Path: "/usr/bin/claude", Args: []string{"claude"}},
 	}
 
@@ -135,7 +135,7 @@ func TestPlanWarningsReachStderrAfterTheTUI(t *testing.T) {
 	h.tuiErr = nil
 	h.tuiPlan = launch.Plan{
 		Spec:    h.mustLookup(t, "claude"),
-		Model:   openrouter.Model{ID: "anthropic/claude-opus-4.6"},
+		Model:   catalog.Model{ID: "anthropic/claude-opus-4.6"},
 		Command: agent.Command{Path: "/usr/bin/claude"},
 		Warnings: []launch.Warning{
 			{Kind: launch.WarnStaleCatalog, Message: "using cached data from 3h ago"},

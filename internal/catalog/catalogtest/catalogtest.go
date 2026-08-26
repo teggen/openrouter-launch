@@ -1,16 +1,21 @@
-// Package ortest provides the shared catalog fixture used by tests across
-// internal/cli, internal/launch, and internal/tui.
+// Package catalogtest provides the shared catalog fixture used by tests
+// across internal/cli, internal/launch, and internal/tui.
 //
 // It exists because the same three-model slice was duplicated in each package
 // and kept in sync by hand. Several tests in more than one package depend on
 // openai/o1-mini being the only entry without tool support, so a drifting
 // copy would silently change what those tests assert.
-package ortest
+//
+// It sits beside the types it serves rather than beside the OpenRouter
+// client, because the packages that depend on it are the provider-neutral
+// ones: a second launcher tool's planner tests need this fixture and must not
+// have to import an OpenRouter-specific package to get it.
+package catalogtest
 
 import (
 	"context"
 
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // Models returns the shared fixture catalog.
@@ -20,8 +25,8 @@ import (
 //   - qwen/qwen3-coder:free is the ONLY free entry.
 //   - anthropic/claude-opus-4.6 is the ONLY entry over $5 per M completion.
 //   - Exactly one entry per provider: anthropic, qwen, openai.
-func Models() []openrouter.Model {
-	return []openrouter.Model{
+func Models() []catalog.Model {
+	return []catalog.Model{
 		{ID: "anthropic/claude-opus-4.6", Name: "Anthropic: Claude Opus 4.6",
 			ContextLength: 200000, PromptPricePerM: 15, CompletionPricePerM: 75,
 			SupportsTools: true, Provider: "anthropic"},
@@ -35,11 +40,11 @@ func Models() []openrouter.Model {
 
 // Catalog serves a fixed model list without touching the network. The field
 // is List rather than Models because it cannot share a name with the method
-// that satisfies openrouter.Catalog.
-type Catalog struct{ List []openrouter.Model }
+// that satisfies catalog.Catalog.
+type Catalog struct{ List []catalog.Model }
 
-// Models implements openrouter.Catalog.
-func (c *Catalog) Models(context.Context) ([]openrouter.Model, error) {
+// Models implements catalog.Catalog.
+func (c *Catalog) Models(context.Context) ([]catalog.Model, error) {
 	return c.List, nil
 }
 

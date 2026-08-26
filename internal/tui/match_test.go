@@ -3,10 +3,10 @@ package tui
 import (
 	"testing"
 
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
-func ids(models []openrouter.Model) []string {
+func ids(models []catalog.Model) []string {
 	out := make([]string, len(models))
 	for i, m := range models {
 		out[i] = m.ID
@@ -27,16 +27,16 @@ func equal(a []string, b ...string) bool {
 }
 
 func TestRankEmptyQueryPreservesCatalogOrder(t *testing.T) {
-	in := []openrouter.Model{{ID: "z/one"}, {ID: "a/two"}, {ID: "m/three"}}
+	in := []catalog.Model{{ID: "z/one"}, {ID: "a/two"}, {ID: "m/three"}}
 	if got := ids(Rank(in, "")); !equal(got, "z/one", "a/two", "m/three") {
 		t.Errorf("Rank(_, \"\") = %v, want catalog order", got)
 	}
 }
 
 func TestRankEmptyQueryDoesNotAliasTheInput(t *testing.T) {
-	in := []openrouter.Model{{ID: "z/one"}, {ID: "a/two"}}
+	in := []catalog.Model{{ID: "z/one"}, {ID: "a/two"}}
 	out := Rank(in, "")
-	out[0] = openrouter.Model{ID: "mutated"}
+	out[0] = catalog.Model{ID: "mutated"}
 	if in[0].ID != "z/one" {
 		t.Errorf("Rank returned a slice aliasing its input; caller mutation reached the catalog")
 	}
@@ -45,21 +45,21 @@ func TestRankEmptyQueryDoesNotAliasTheInput(t *testing.T) {
 // The fixture lists the longer ID first, so a Rank that returned catalog
 // order would fail.
 func TestRankExactMatchBeatsPrefixMatch(t *testing.T) {
-	in := []openrouter.Model{{ID: "a/bc"}, {ID: "a/b"}}
+	in := []catalog.Model{{ID: "a/bc"}, {ID: "a/b"}}
 	if got := ids(Rank(in, "a/b")); !equal(got, "a/b", "a/bc") {
 		t.Errorf("Rank = %v, want the exact match first", got)
 	}
 }
 
 func TestRankPrefixBeatsSubstring(t *testing.T) {
-	in := []openrouter.Model{{ID: "z/openai-mirror"}, {ID: "openai/o1"}}
+	in := []catalog.Model{{ID: "z/openai-mirror"}, {ID: "openai/o1"}}
 	if got := ids(Rank(in, "openai")); !equal(got, "openai/o1", "z/openai-mirror") {
 		t.Errorf("Rank = %v, want the prefix match first", got)
 	}
 }
 
 func TestRankIDMatchBeatsNameMatch(t *testing.T) {
-	in := []openrouter.Model{
+	in := []catalog.Model{
 		{ID: "z/other", Name: "Claude flavored"},
 		{ID: "anthropic/claude", Name: "Something else"},
 	}
@@ -71,28 +71,28 @@ func TestRankIDMatchBeatsNameMatch(t *testing.T) {
 func TestRankEarlierMatchPositionWins(t *testing.T) {
 	// Neither is a prefix match, so both score as ID substrings and only the
 	// match offset separates them.
-	in := []openrouter.Model{{ID: "zzz/mini-x"}, {ID: "a/mini"}}
+	in := []catalog.Model{{ID: "zzz/mini-x"}, {ID: "a/mini"}}
 	if got := ids(Rank(in, "mini")); !equal(got, "a/mini", "zzz/mini-x") {
 		t.Errorf("Rank = %v, want the earlier match first", got)
 	}
 }
 
 func TestRankShorterIDWinsAtTheSamePosition(t *testing.T) {
-	in := []openrouter.Model{{ID: "mini-extra-long"}, {ID: "mini-x"}}
+	in := []catalog.Model{{ID: "mini-extra-long"}, {ID: "mini-x"}}
 	if got := ids(Rank(in, "mini")); !equal(got, "mini-x", "mini-extra-long") {
 		t.Errorf("Rank = %v, want the shorter ID first", got)
 	}
 }
 
 func TestRankExcludesNonMatches(t *testing.T) {
-	in := []openrouter.Model{{ID: "a/one"}, {ID: "b/two"}}
+	in := []catalog.Model{{ID: "a/one"}, {ID: "b/two"}}
 	if got := Rank(in, "nothing-matches-this"); len(got) != 0 {
 		t.Errorf("Rank = %v, want no results", ids(got))
 	}
 }
 
 func TestRankIsCaseInsensitive(t *testing.T) {
-	in := []openrouter.Model{{ID: "anthropic/claude-opus", Name: "Anthropic: Claude"}}
+	in := []catalog.Model{{ID: "anthropic/claude-opus", Name: "Anthropic: Claude"}}
 	if got := Rank(in, "ANTHROPIC"); len(got) != 1 {
 		t.Errorf("Rank(%q) matched %d models, want 1", "ANTHROPIC", len(got))
 	}
@@ -104,7 +104,7 @@ func TestRankIsCaseInsensitive(t *testing.T) {
 // diverges from the source it is modelled on, and it needs a test to stay
 // diverged.
 func TestRankDoesNotSearchDescriptions(t *testing.T) {
-	in := []openrouter.Model{
+	in := []catalog.Model{
 		{ID: "a/one", Name: "One", Description: "excellent at haskell"},
 	}
 	if got := Rank(in, "haskell"); len(got) != 0 {
@@ -117,7 +117,7 @@ func TestRankDoesNotSearchDescriptions(t *testing.T) {
 // SliceStable were swapped for Slice — it records the contract rather than
 // enforcing it.
 func TestRankKeepsCatalogOrderForEqualScores(t *testing.T) {
-	in := []openrouter.Model{{ID: "a/mini"}, {ID: "b/mini"}}
+	in := []catalog.Model{{ID: "a/mini"}, {ID: "b/mini"}}
 	if got := ids(Rank(in, "mini")); !equal(got, "a/mini", "b/mini") {
 		t.Errorf("Rank = %v, want catalog order preserved for ties", got)
 	}

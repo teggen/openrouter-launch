@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
@@ -45,7 +46,7 @@ const (
 // row cannot drift from what lipgloss actually draws.
 var tableFrame = lipgloss.Height(theme.Render(ui.Table{
 	Headers: append([]string{" "}, ui.ModelHeaders...),
-	Rows:    [][]string{append([]string{" "}, ui.ModelCells(openrouter.Model{})...)},
+	Rows:    [][]string{append([]string{" "}, ui.ModelCells(catalog.Model{})...)},
 })) - 1
 
 // pickerHints is the key footer, one hint per element so hintLines can
@@ -73,7 +74,7 @@ func (m pickerModel) chromeHeight() int {
 
 type pickerInput struct {
 	Agent   *agent.Spec
-	Models  []openrouter.Model
+	Models  []catalog.Model
 	Filters filterState
 	// Selected preselects a model by ID: config's last_model on first open,
 	// and the previously highlighted model when the picker reopens after a
@@ -110,9 +111,9 @@ type pickerChoice struct {
 
 type pickerModel struct {
 	agent   *agent.Spec
-	all     []openrouter.Model
+	all     []catalog.Model
 	filters filterState
-	visible []openrouter.Model
+	visible []catalog.Model
 	cursor  int
 	offset  int
 	width   int
@@ -156,7 +157,7 @@ func (m *pickerModel) recompute(keepID string) {
 	m.clampScroll()
 }
 
-func indexOfModel(models []openrouter.Model, id string) int {
+func indexOfModel(models []catalog.Model, id string) int {
 	if id == "" {
 		return 0
 	}

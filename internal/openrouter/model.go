@@ -1,4 +1,11 @@
-// Package openrouter fetches, caches, and filters the OpenRouter model catalog.
+// Package openrouter is everything about the catalog that is specific to
+// OpenRouter: the wire format its /models endpoint speaks, the HTTP client
+// that fetches it, the on-disk cache, and the filter/sort/format helpers the
+// terminal UI presents it with.
+//
+// The normalized types themselves live in internal/catalog, which this
+// imports and which imports nothing here — that direction is the boundary a
+// second launcher tool is built against.
 package openrouter
 
 import (
@@ -8,32 +15,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
-
-// Model is a normalized catalog entry. Prices are USD per million tokens and
-// are only meaningful when PricingUnknown is false.
-type Model struct {
-	ID                  string
-	Name                string
-	Description         string
-	ContextLength       int
-	PromptPricePerM     float64
-	CompletionPricePerM float64
-	// PricingUnknown reports that a price could not be parsed. Unknown
-	// pricing must never be mistaken for free pricing.
-	PricingUnknown bool
-	SupportsTools  bool
-	Provider       string
-}
-
-// IsFree reports whether both prompt and completion tokens cost nothing.
-// Unknown pricing is never free.
-func (m Model) IsFree() bool {
-	if m.PricingUnknown {
-		return false
-	}
-	return m.PromptPricePerM == 0 && m.CompletionPricePerM == 0
-}
 
 type apiPricing struct {
 	Prompt     string `json:"prompt"`
@@ -54,18 +38,18 @@ type apiModelList struct {
 }
 
 // DecodeModels parses a /models response body into normalized models.
-func DecodeModels(data []byte) ([]Model, error) {
+func DecodeModels(data []byte) ([]catalog.Model, error) {
 	var list apiModelList
 	if err := json.Unmarshal(data, &list); err != nil {
 		return nil, fmt.Errorf("decode models: %w", err)
 	}
 
-	models := make([]Model, 0, len(list.Data))
+	models := make([]catalog.Model, 0, len(list.Data))
 	for _, m := range list.Data {
 		provider, _, _ := strings.Cut(m.ID, "/")
 		prompt, promptOK := perMillion(m.Pricing.Prompt)
 		completion, completionOK := perMillion(m.Pricing.Completion)
-		models = append(models, Model{
+		models = append(models, catalog.Model{
 			ID:                  m.ID,
 			Name:                m.Name,
 			Description:         m.Description,

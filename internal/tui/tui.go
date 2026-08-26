@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 // ErrCancelled reports that the user backed out. The CLI maps it to a silent
@@ -100,7 +100,7 @@ type session struct {
 	// refreshLeft is the unspent --refresh.
 	refreshLeft bool
 
-	models []openrouter.Model
+	models []catalog.Model
 	loaded bool
 
 	// fromPicker records whether the current plan attempt came through the

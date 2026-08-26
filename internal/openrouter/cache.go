@@ -7,38 +7,47 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // DefaultTTL is how long a cached catalog is considered fresh.
 const DefaultTTL = 24 * time.Hour
 
-// Snapshot is a catalog read plus its provenance.
-type Snapshot struct {
-	Models    []Model
-	FetchedAt time.Time
-	// Stale is true when a refresh failed and cached data was served instead.
-	Stale bool
-	// StaleErr is the refresh failure that caused Stale.
-	StaleErr error
-}
-
-// Age reports how old the snapshot's data is relative to now.
-func (s Snapshot) Age(now time.Time) time.Duration {
-	return now.Sub(s.FetchedAt)
-}
-
 // Cache reads the catalog through Source, persisting it to Path.
 type Cache struct {
 	Path   string
 	TTL    time.Duration
-	Source Catalog
+	Source catalog.Catalog
 	// Now is injectable for tests; nil means time.Now.
 	Now func() time.Time
 }
 
+// CacheSchema is the on-disk format version. Bump it whenever catalog.Model
+// changes in a way that makes an older file decode WRONGLY rather than fail
+// to decode — a renamed or retyped field, or the addition of json tags.
+//
+// This exists because catalog.Model carries no json tags, so the file stores
+// Go field names ("PromptPricePerM"). encoding/json matches names
+// case-insensitively and silently zeroes what it cannot match, so any such
+// change leaves every old file decoding cleanly with a zero price — and a
+// zero price is not "unknown", it is FREE. A $75/M model rendered as free is
+// Landmine 4's exact false claim, reached without anyone writing a wrong
+// price anywhere. A version mismatch is treated as a miss, which costs one
+// refetch of a public endpoint.
+//
+// It is exported because three packages' tests seed a cache file by writing
+// the JSON shape directly rather than depending on the unexported cacheFile
+// type; hardcoding the number in each of them is the drift those helpers
+// already exist to avoid.
+const CacheSchema = 1
+
 type cacheFile struct {
-	FetchedAt time.Time `json:"fetched_at"`
-	Models    []Model   `json:"models"`
+	// Schema is absent from files written before it existed, so those decode
+	// as 0 and are correctly treated as a miss.
+	Schema    int             `json:"schema"`
+	FetchedAt time.Time       `json:"fetched_at"`
+	Models    []catalog.Model `json:"models"`
 }
 
 func (c *Cache) now() time.Time {
@@ -51,29 +60,29 @@ func (c *Cache) now() time.Time {
 // Load returns the catalog, fetching when the cache is missing, expired, or
 // forceRefresh is set. If a fetch fails but cached data exists, the cached
 // data is returned with Stale set rather than failing.
-func (c *Cache) Load(ctx context.Context, forceRefresh bool) (Snapshot, error) {
+func (c *Cache) Load(ctx context.Context, forceRefresh bool) (catalog.Snapshot, error) {
 	cached, hasCache := c.read()
 
 	if !forceRefresh && hasCache && c.now().Sub(cached.FetchedAt) < c.TTL {
-		return Snapshot{Models: cached.Models, FetchedAt: cached.FetchedAt}, nil
+		return catalog.Snapshot{Models: cached.Models, FetchedAt: cached.FetchedAt}, nil
 	}
 
 	models, err := c.Source.Models(ctx)
 	if err != nil {
 		if hasCache {
-			return Snapshot{
+			return catalog.Snapshot{
 				Models:    cached.Models,
 				FetchedAt: cached.FetchedAt,
 				Stale:     true,
 				StaleErr:  err,
 			}, nil
 		}
-		return Snapshot{}, err
+		return catalog.Snapshot{}, err
 	}
 
 	fetchedAt := c.now()
-	c.write(cacheFile{FetchedAt: fetchedAt, Models: models})
-	return Snapshot{Models: models, FetchedAt: fetchedAt}, nil
+	c.write(cacheFile{Schema: CacheSchema, FetchedAt: fetchedAt, Models: models})
+	return catalog.Snapshot{Models: models, FetchedAt: fetchedAt}, nil
 }
 
 // read returns the cached file, reporting false when it is missing or corrupt.
@@ -84,6 +93,11 @@ func (c *Cache) read() (cacheFile, bool) {
 	}
 	var cf cacheFile
 	if err := json.Unmarshal(data, &cf); err != nil {
+		return cacheFile{}, false
+	}
+	// A file written by a different schema decodes without error but cannot
+	// be trusted field-for-field; see CacheSchema.
+	if cf.Schema != CacheSchema {
 		return cacheFile{}, false
 	}
 	// An empty Models slice is also treated as a miss: it guards against a

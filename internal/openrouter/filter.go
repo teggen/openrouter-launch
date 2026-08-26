@@ -1,6 +1,10 @@
 package openrouter
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
+)
 
 // Filter narrows the catalog. Zero values mean "no constraint".
 type Filter struct {
@@ -19,11 +23,10 @@ type Filter struct {
 }
 
 // Apply returns the models matching every set constraint, preserving order.
-func Apply(models []Model, f Filter) []Model {
-	search := strings.ToLower(f.Search)
+func Apply(models []catalog.Model, f Filter) []catalog.Model {
 	provider := strings.ToLower(f.Provider)
 
-	out := make([]Model, 0, len(models))
+	out := make([]catalog.Model, 0, len(models))
 	for _, m := range models {
 		if f.ToolsOnly && !m.SupportsTools {
 			continue
@@ -41,41 +44,10 @@ func Apply(models []Model, f Filter) []Model {
 		if f.MaxPrice > 0 && (m.PricingUnknown || m.CompletionPricePerM > f.MaxPrice) {
 			continue
 		}
-		if search != "" && !matches(m, search) {
+		if f.Search != "" && !m.Matches(f.Search) {
 			continue
 		}
 		out = append(out, m)
-	}
-	return out
-}
-
-func matches(m Model, lowerSearch string) bool {
-	return strings.Contains(strings.ToLower(m.ID), lowerSearch) ||
-		strings.Contains(strings.ToLower(m.Name), lowerSearch)
-}
-
-// FindByID returns the model with exactly this ID.
-func FindByID(models []Model, id string) (Model, bool) {
-	for _, m := range models {
-		if m.ID == id {
-			return m, true
-		}
-	}
-	return Model{}, false
-}
-
-// Suggest returns up to limit model IDs loosely matching query, for use in
-// "did you mean" messages after an unknown slug.
-func Suggest(models []Model, query string, limit int) []string {
-	lower := strings.ToLower(query)
-	out := make([]string, 0, limit)
-	for _, m := range models {
-		if len(out) >= limit {
-			break
-		}
-		if lower == "" || matches(m, lower) {
-			out = append(out, m.ID)
-		}
 	}
 	return out
 }

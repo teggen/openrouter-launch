@@ -3,9 +3,11 @@ package openrouter
 import (
 	"os"
 	"testing"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
-func loadFixture(t *testing.T) []Model {
+func loadFixture(t *testing.T) []catalog.Model {
 	t.Helper()
 	data, err := os.ReadFile("testdata/models.json")
 	if err != nil {
@@ -25,7 +27,7 @@ func TestDecodeModelsFields(t *testing.T) {
 	}
 
 	got := models[0]
-	want := Model{
+	want := catalog.Model{
 		ID:                  "anthropic/claude-opus-4.6",
 		Name:                "Anthropic: Claude Opus 4.6",
 		Description:         "Flagship reasoning model.",
@@ -47,16 +49,6 @@ func TestDecodeModelsPricingIsExact(t *testing.T) {
 	}
 	if got := models[2].CompletionPricePerM; got != 4.4 {
 		t.Errorf("completion price = %v, want 4.4", got)
-	}
-}
-
-func TestIsFree(t *testing.T) {
-	models := loadFixture(t)
-	if models[0].IsFree() {
-		t.Error("paid model reported as free")
-	}
-	if !models[1].IsFree() {
-		t.Error("free model not reported as free")
 	}
 }
 

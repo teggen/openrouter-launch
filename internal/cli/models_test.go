@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
@@ -158,7 +158,7 @@ func mustLoadConfig(t *testing.T) *config.Config {
 }
 
 func TestModelsTableMarksToolSupport(t *testing.T) {
-	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]openrouter.Model{
+	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]catalog.Model{
 		{ID: "a/tools", ContextLength: 200000, SupportsTools: true},
 		{ID: "a/plain", ContextLength: 128000},
 	}))
@@ -175,7 +175,7 @@ func TestModelsTableMarksToolSupport(t *testing.T) {
 // Landmine 4 at the render layer: a model whose price failed to parse is
 // not free, and rendering it as free is an actively wrong claim about cost.
 func TestModelsTableNeverRendersUnknownPricingAsFree(t *testing.T) {
-	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]openrouter.Model{
+	out := ui.NewTheme(new(strings.Builder)).Render(modelsTable([]catalog.Model{
 		{ID: "x/y", ContextLength: 1000, PricingUnknown: true},
 	}))
 

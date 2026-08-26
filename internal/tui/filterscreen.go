@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
@@ -102,7 +103,7 @@ var filterScreenHints = []string{
 
 type filterScreenInput struct {
 	Filters filterState
-	Models  []openrouter.Model
+	Models  []catalog.Model
 	Width   int
 	Height  int
 }
@@ -122,7 +123,7 @@ type filterScreenModel struct {
 	// opened is restored on cancel, so esc cannot leak the live edits.
 	opened  filterState
 	filters filterState
-	all     []openrouter.Model
+	all     []catalog.Model
 	cursor  int
 	width   int
 	height  int

@@ -13,9 +13,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
-	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 	"github.com/teggen/openrouter-launch/internal/tui"
 )
 
@@ -39,18 +40,18 @@ type harness struct {
 	tuiCalls int
 }
 
-// newHarness builds a harness against the shared ortest fixture catalog. Most
+// newHarness builds a harness against the shared catalogtest fixture catalog. Most
 // tests want this; use newHarnessWith directly when a test needs a
 // different catalog (e.g. one that always fails, to exercise the
 // stale-cache fallback).
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	return newHarnessWith(t, ortest.NewCatalog())
+	return newHarnessWith(t, catalogtest.NewCatalog())
 }
 
 // newHarnessWith builds a harness against catalog, with config and cache
 // isolated to a temp dir.
-func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
+func newHarnessWith(t *testing.T, catalog catalog.Catalog) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", dir)
@@ -72,7 +73,7 @@ func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
 }
 
 // seedStaleCache writes a catalog cache file older than openrouter.DefaultTTL
-// into the isolated XDG_CACHE_HOME, containing the ortest fixture, so
+// into the isolated XDG_CACHE_HOME, containing the catalogtest fixture, so
 // Service.Snapshot falls back to stale cached data. Call it after the
 // harness (or otherwise XDG_CACHE_HOME) is set up.
 func seedStaleCache(t *testing.T) {
@@ -85,9 +86,10 @@ func seedStaleCache(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	data, err := json.Marshal(struct {
-		FetchedAt time.Time          `json:"fetched_at"`
-		Models    []openrouter.Model `json:"models"`
-	}{FetchedAt: time.Now().Add(-48 * time.Hour), Models: ortest.Models()}) // older than DefaultTTL
+		Schema    int             `json:"schema"`
+		FetchedAt time.Time       `json:"fetched_at"`
+		Models    []catalog.Model `json:"models"`
+	}{Schema: openrouter.CacheSchema, FetchedAt: time.Now().Add(-48 * time.Hour), Models: catalogtest.Models()}) // older than DefaultTTL
 	if err != nil {
 		t.Fatalf("marshal cache file: %v", err)
 	}

@@ -14,7 +14,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // Rank returns the models matching query, best match first. An empty query
@@ -29,20 +29,20 @@ import (
 // Descriptions are not searched. The spec scopes search to slug and display
 // name; the description pane exists to explain the highlighted row, not to
 // widen the match set.
-func Rank(models []openrouter.Model, query string) []openrouter.Model {
+func Rank(models []catalog.Model, query string) []catalog.Model {
 	q := strings.ToLower(strings.TrimSpace(query))
 	if q == "" {
 		// Copied rather than returned directly: the picker holds the catalog
 		// for the life of the session and reassigns this result on every
 		// keystroke, so an aliased slice would let one recompute corrupt the
 		// source.
-		out := make([]openrouter.Model, len(models))
+		out := make([]catalog.Model, len(models))
 		copy(out, models)
 		return out
 	}
 
 	type scored struct {
-		model openrouter.Model
+		model catalog.Model
 		score matchScore
 	}
 	hits := make([]scored, 0, len(models))
@@ -55,7 +55,7 @@ func Rank(models []openrouter.Model, query string) []openrouter.Model {
 		return better(hits[i].score, hits[j].score)
 	})
 
-	out := make([]openrouter.Model, len(hits))
+	out := make([]catalog.Model, len(hits))
 	for i, h := range hits {
 		out[i] = h.model
 	}
@@ -73,7 +73,7 @@ type matchScore struct {
 	extra int
 }
 
-func score(m openrouter.Model, q string) matchScore {
+func score(m catalog.Model, q string) matchScore {
 	id := strings.ToLower(m.ID)
 	name := strings.ToLower(m.Name)
 

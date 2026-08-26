@@ -5,18 +5,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
 func TestModelCellsMatchTheHeaderCount(t *testing.T) {
-	got := ModelCells(openrouter.Model{ID: "a/b"})
+	got := ModelCells(catalog.Model{ID: "a/b"})
 	if len(got) != len(ModelHeaders) {
 		t.Errorf("ModelCells returned %d cells, ModelHeaders has %d", len(got), len(ModelHeaders))
 	}
 }
 
 func TestModelCellsRenderIDContextAndBothPrices(t *testing.T) {
-	got := ModelCells(openrouter.Model{
+	got := ModelCells(catalog.Model{
 		ID: "anthropic/claude-opus-4.6", ContextLength: 200000,
 		PromptPricePerM: 15, CompletionPricePerM: 75, SupportsTools: true,
 	})
@@ -29,7 +30,7 @@ func TestModelCellsRenderIDContextAndBothPrices(t *testing.T) {
 }
 
 func TestModelCellsOmitTheToolsMarkerWhenUnsupported(t *testing.T) {
-	if got := ModelCells(openrouter.Model{ID: "openai/o1-mini", ContextLength: 128000})[4]; got != "" {
+	if got := ModelCells(catalog.Model{ID: "openai/o1-mini", ContextLength: 128000})[4]; got != "" {
 		t.Errorf("tools cell = %q, want empty for a tool-less model", got)
 	}
 }
@@ -38,7 +39,7 @@ func TestModelCellsOmitTheToolsMarkerWhenUnsupported(t *testing.T) {
 // not free, and rendering it as free is an actively wrong claim about what
 // a launch costs.
 func TestModelCellsNeverRenderUnknownPricingAsFree(t *testing.T) {
-	got := ModelCells(openrouter.Model{ID: "x/y", ContextLength: 1000, PricingUnknown: true})
+	got := ModelCells(catalog.Model{ID: "x/y", ContextLength: 1000, PricingUnknown: true})
 
 	for _, i := range []int{2, 3} {
 		if strings.Contains(got[i], "free") || strings.Contains(got[i], "0.00") {

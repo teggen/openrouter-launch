@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // SortKey names a catalog column to order by. The zero value means "do not
@@ -60,8 +62,8 @@ type Sort struct {
 // The sort is STABLE, so equal keys keep the order they arrived in — catalog
 // order for the CLI, relevance order for the picker. That is the whole reason
 // a two-valued column like TOOLS produces a useful listing.
-func SortModels(models []Model, s Sort) []Model {
-	out := make([]Model, len(models))
+func SortModels(models []catalog.Model, s Sort) []catalog.Model {
+	out := make([]catalog.Model, len(models))
 	copy(out, models)
 	if s.Key == SortNone {
 		return out
@@ -89,7 +91,7 @@ func SortModels(models []Model, s Sort) []Model {
 // it numerically would head a cheapest-first list with models whose price is
 // simply not known — the same false claim that --free and --max-price already
 // refuse to make.
-func unknownLast(a, b Model, k SortKey) (less, decided bool) {
+func unknownLast(a, b catalog.Model, k SortKey) (less, decided bool) {
 	if k != SortInput && k != SortOutput {
 		return false, false
 	}
@@ -99,22 +101,22 @@ func unknownLast(a, b Model, k SortKey) (less, decided bool) {
 	return !a.PricingUnknown, true
 }
 
-func lessBy(k SortKey) func(a, b Model) bool {
+func lessBy(k SortKey) func(a, b catalog.Model) bool {
 	switch k {
 	case SortModel:
 		// The ID, not the Name: it is what the MODEL column shows and what -m
 		// takes.
-		return func(a, b Model) bool { return strings.ToLower(a.ID) < strings.ToLower(b.ID) }
+		return func(a, b catalog.Model) bool { return strings.ToLower(a.ID) < strings.ToLower(b.ID) }
 	case SortContext:
-		return func(a, b Model) bool { return a.ContextLength < b.ContextLength }
+		return func(a, b catalog.Model) bool { return a.ContextLength < b.ContextLength }
 	case SortInput:
-		return func(a, b Model) bool { return a.PromptPricePerM < b.PromptPricePerM }
+		return func(a, b catalog.Model) bool { return a.PromptPricePerM < b.PromptPricePerM }
 	case SortOutput:
-		return func(a, b Model) bool { return a.CompletionPricePerM < b.CompletionPricePerM }
+		return func(a, b catalog.Model) bool { return a.CompletionPricePerM < b.CompletionPricePerM }
 	case SortTools:
-		return func(a, b Model) bool { return !a.SupportsTools && b.SupportsTools }
+		return func(a, b catalog.Model) bool { return !a.SupportsTools && b.SupportsTools }
 	}
 	// An unrecognised key orders nothing. Unreachable through ParseSortKey,
 	// but SortModels takes a Sort a caller could build by hand.
-	return func(_, _ Model) bool { return false }
+	return func(_, _ catalog.Model) bool { return false }
 }

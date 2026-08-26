@@ -11,20 +11,21 @@ import (
 	"time"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
-	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 )
 
 // countingCatalog records how many times the catalog was actually fetched,
 // which is how the refresh-spent-once invariant is checked.
 type countingCatalog struct {
-	models []openrouter.Model
+	models []catalog.Model
 	calls  int
 }
 
-func (c *countingCatalog) Models(context.Context) ([]openrouter.Model, error) {
+func (c *countingCatalog) Models(context.Context) ([]catalog.Model, error) {
 	c.calls++
 	return c.models, nil
 }
@@ -38,7 +39,7 @@ func newTestService(t *testing.T) (*launch.Service, *countingCatalog) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv(config.APIKeyEnvVar, "test-key")
 
-	cat := &countingCatalog{models: ortest.Models()}
+	cat := &countingCatalog{models: catalogtest.Models()}
 	return &launch.Service{
 		Catalog: cat,
 		// Never called: the driver returns a plan and the caller launches.
@@ -52,7 +53,7 @@ func newTestService(t *testing.T) (*launch.Service, *countingCatalog) {
 // situation from the driver's side.
 type erroringCatalog struct{}
 
-func (erroringCatalog) Models(context.Context) ([]openrouter.Model, error) {
+func (erroringCatalog) Models(context.Context) ([]catalog.Model, error) {
 	return nil, errors.New("network down")
 }
 
@@ -73,9 +74,10 @@ func seedCatalogCache(t *testing.T, fetchedAt time.Time) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	data, err := json.Marshal(struct {
-		FetchedAt time.Time          `json:"fetched_at"`
-		Models    []openrouter.Model `json:"models"`
-	}{FetchedAt: fetchedAt, Models: ortest.Models()})
+		Schema    int             `json:"schema"`
+		FetchedAt time.Time       `json:"fetched_at"`
+		Models    []catalog.Model `json:"models"`
+	}{Schema: openrouter.CacheSchema, FetchedAt: fetchedAt, Models: catalogtest.Models()})
 	if err != nil {
 		t.Fatalf("marshal cache file: %v", err)
 	}
@@ -1077,7 +1079,7 @@ func TestRunUnknownModelFromAProfileListsSuggestions(t *testing.T) {
 	s := &script{
 		t: t,
 		root: []rootChoice{
-			// openrouter.Suggest matches by literal substring containment,
+			// catalog.Suggest matches by literal substring containment,
 			// not fuzzy similarity, so the stale slug must actually be a
 			// substring of the real one for Plan to offer it back.
 			{Kind: choiceProfile, Profile: config.Profile{

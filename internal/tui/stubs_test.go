@@ -4,7 +4,7 @@ import (
 	"errors"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // stubLauncher stands in for a real agent so tests never depend on what is
@@ -42,7 +42,7 @@ func (s *stubLauncher) CheckInstalled() bool { return s.installed }
 func (s *stubLauncher) InstallHint() string  { return s.installHint }
 
 // Compatible
-func (s *stubLauncher) CheckModel(openrouter.Model) error { return s.compatErr }
+func (s *stubLauncher) CheckModel(catalog.Model) error { return s.compatErr }
 
 // stubSpec builds a supported, installed agent spec.
 func stubSpec(name string) *agent.Spec {

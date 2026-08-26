@@ -54,10 +54,23 @@ Launch pipeline, one direction, no cycles:
 
 ```
 main.go → internal/cli (cobra) → internal/launch (planner) → internal/agent (exec)
-                                       ↕                          ↑
-                                 internal/tui (screens)     internal/openrouter
-                                                            (catalog + cache)
+                                       ↕                          ↓
+                                 internal/tui (screens)     internal/catalog
+                                                            (Model, Catalog, Snapshot)
+                                                                  ↑
+                                                            internal/openrouter
+                                                            (client, cache, filter/sort/format)
 ```
+
+Arrows point from importer to imported. The split at the bottom is the one
+that matters. `internal/catalog` is provider-neutral and imports nothing else
+in this repo; `internal/openrouter` holds everything vendor-specific — the
+`/models` wire format, the HTTP client, the on-disk cache, the presentation
+helpers — and depends on `catalog` rather than the other way round.
+`internal/agent`'s only in-repo import is `internal/catalog`, enforced by
+`TestAgentDependsOnNothingButTheCatalog`. `internal/launch` still reaches
+`internal/openrouter` and `internal/config` for its cache and settings; those
+two edges become injected fields next.
 
 - **`internal/agent`** — declarative registry of agents. `Launcher` is the
   only required interface and its `Command(Request) (Command, error)` MUST
@@ -90,9 +103,19 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   `internal/cli`, cobra, or pflag (test-enforced). Screen-closure wiring in
   `program.go` must be tested by driving a real headless program, never by
   nil-checks (Landmine 16).
-- **`internal/openrouter`** — hand-rolled catalog client behind the narrow
-  `Catalog` interface; `Cache` wraps a `Catalog` and adds provenance —
-  deliberately not merged. Unknown pricing is never treated as free.
+- **`internal/catalog`** — the normalized `Model`, the narrow `Catalog`
+  interface, and `Snapshot` (a read plus its provenance). Unknown pricing is
+  never treated as free, and `Model` carries **no json struct tags**: the
+  cache marshals it directly, so existing files store Go field names and
+  adding tags would keep decoding (`encoding/json` matches
+  case-insensitively) while zeroing every price — a $75/M model rendering
+  free, Landmine 4 by a new route. `TestModelHasNoJSONTags` and the
+  `CacheSchema` version both guard that. `catalog/catalogtest` is the shared
+  three-model fixture seven test files depend on.
+- **`internal/openrouter`** — hand-rolled catalog client implementing
+  `catalog.Catalog`; `Cache` wraps a `catalog.Catalog` and adds provenance —
+  deliberately not merged. `Filter`/`SortModels`/`FormatPrice` are
+  presentation and stay here on purpose.
 - **Zero-touch principle (the design's central claim):** agents are
   configured only via env vars, inline-config env content, CLI overrides,
   or — where nothing else reaches the agent — a key on argv; never by

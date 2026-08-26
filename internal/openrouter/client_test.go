@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 func TestClientModels(t *testing.T) {
@@ -131,8 +133,11 @@ func TestNewClientHasAReadCap(t *testing.T) {
 	}
 }
 
+// TestClientSatisfiesCatalog pins the direction of the boundary: the
+// interface lives in internal/catalog and the OpenRouter client implements
+// it, so a consumer of the catalog never has to name this package.
 func TestClientSatisfiesCatalog(t *testing.T) {
-	var _ Catalog = NewClient()
+	var _ catalog.Catalog = NewClient()
 }
 
 func TestNewClientUsesDefaultBaseURL(t *testing.T) {

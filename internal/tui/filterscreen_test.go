@@ -6,8 +6,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
-	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 )
 
 func filterScreenFixture() filterScreenModel {
@@ -17,7 +17,7 @@ func filterScreenFixture() filterScreenModel {
 func filterScreenFixtureWith(f filterState) filterScreenModel {
 	return newFilterScreenModel(filterScreenInput{
 		Filters: f,
-		Models:  ortest.Models(),
+		Models:  catalogtest.Models(),
 		Width:   100,
 		Height:  24,
 	})

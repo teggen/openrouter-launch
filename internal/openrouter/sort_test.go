@@ -5,6 +5,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // sortFixture is deliberately in NO column's sorted order, so a comparator
@@ -18,8 +20,8 @@ import (
 //     version of this fixture was written first and proved nothing.
 //   - "unknown/model" carries PricingUnknown, and is the cheapest-LOOKING
 //     entry by raw float (0.0), which is the trap Landmine 4 describes.
-func sortFixture() []Model {
-	return []Model{
+func sortFixture() []catalog.Model {
+	return []catalog.Model{
 		{ID: "b/mid", ContextLength: 128_000, PromptPricePerM: 3, CompletionPricePerM: 9, SupportsTools: true},
 		{ID: "unknown/model", ContextLength: 8_000, PricingUnknown: true},
 		{ID: "a/pricey", ContextLength: 200_000, PromptPricePerM: 15, CompletionPricePerM: 75, SupportsTools: true},
@@ -93,9 +95,9 @@ func TestSortModelsIsStable(t *testing.T) {
 	// with every comparison false, pdqsort detects an already-ordered run and
 	// returns it untouched, so that version of this test passes with
 	// sort.Slice in place. It was written that way first and caught nothing.
-	in := make([]Model, 0, 40)
+	in := make([]catalog.Model, 0, 40)
 	for i := 0; i < 40; i++ {
-		in = append(in, Model{
+		in = append(in, catalog.Model{
 			ID:            fmt.Sprintf("m%02d", i),
 			ContextLength: 1000 * (1 + (i*7)%4),
 		})

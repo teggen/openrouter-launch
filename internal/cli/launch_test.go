@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/openrouter"
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 func setupLaunch(t *testing.T) *harness {
@@ -95,7 +95,7 @@ func TestLaunchUnknownModelSuggests(t *testing.T) {
 
 	// "anthropic/claude-opus" (missing the version suffix) is not an exact
 	// slug match, but it is a substring of anthropic/claude-opus-4.6, which
-	// is what openrouter.Suggest's substring matching requires to surface it.
+	// is what catalog.Suggest's substring matching requires to surface it.
 	_, err := h.exec("claude", "-m", "anthropic/claude-opus")
 	if err == nil {
 		t.Fatal("expected an error for an unknown model")
@@ -315,7 +315,7 @@ func TestLaunchMissingAPIKeyFails(t *testing.T) {
 // stale-cache fallback path so a pre-seeded cache file is what gets served.
 type erroringCatalog struct{}
 
-func (erroringCatalog) Models(context.Context) ([]openrouter.Model, error) {
+func (erroringCatalog) Models(context.Context) ([]catalog.Model, error) {
 	return nil, errors.New("network down")
 }
 

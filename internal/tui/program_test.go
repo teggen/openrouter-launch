@@ -16,7 +16,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
-	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
+	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
 )
 
 func TestIsTerminalRejectsARegularFile(t *testing.T) {
@@ -432,7 +432,7 @@ func TestLiveScreensPickReturnsTheHighlightedModelOnEnter(t *testing.T) {
 	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
-	choice, err := sc.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100})
+	choice, err := sc.pick(pickerInput{Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100})
 	if err != nil {
 		t.Fatalf("pick: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestLiveScreensPickTypesIntoTheSearchBoxOneKeystrokeAtATime(t *testing.T) {
 	done := make(chan result, 1)
 	go func() {
 		choice, err := sc.pick(pickerInput{
-			Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+			Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100,
 		})
 		done <- result{choice, err}
 	}()
@@ -520,7 +520,7 @@ func TestLiveScreensPickEscReturnsBackWithLiveFilters(t *testing.T) {
 	// tolerates silently (tty.go:100). The esc still resolves, because what
 	// resolves it is escLatch's own tick rather than another keypress.
 	choice, err := sc.pick(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Filters: filterState{freeOnly: true}, Height: 24, Width: 100,
 	})
 	if err != nil {
@@ -551,7 +551,7 @@ func TestLiveScreensPickSurvivesAnAltChordSplitAcrossReads(t *testing.T) {
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.pick(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+		Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100,
 	})
 	if err != nil {
 		t.Fatalf("pick: %v", err)
@@ -594,7 +594,7 @@ func TestLiveScreensPickReturnsBackNotZeroWhenUndecided(t *testing.T) {
 	sc := liveScreensHeadless(t, in, &out, tea.WithFilter(quitAfterSecondKey))
 
 	choice, err := sc.pick(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Filters: filterState{freeOnly: true}, Height: 24, Width: 100,
 	})
 	if err != nil {
@@ -621,7 +621,7 @@ func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T)
 
 	var pickOut syncBuffer
 	pickSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), &pickOut)
-	if _, err := pickSC.pick(pickerInput{Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100}); err != nil {
+	if _, err := pickSC.pick(pickerInput{Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100}); err != nil {
 		t.Fatalf("pick: %v", err)
 	}
 	if !strings.Contains(pickOut.String(), altScreenSeq) {
@@ -630,7 +630,7 @@ func TestLiveScreensOnlyThePickerAndFiltersScreenEnterTheAltScreen(t *testing.T)
 
 	var filtersOut syncBuffer
 	filtersSC := liveScreensHeadless(t, bytes.NewBufferString("\x1b"), &filtersOut)
-	if _, err := filtersSC.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100}); err != nil {
+	if _, err := filtersSC.filters(filterScreenInput{Models: catalogtest.Models(), Height: 24, Width: 100}); err != nil {
 		t.Fatalf("filters: %v", err)
 	}
 	if !strings.Contains(filtersOut.String(), altScreenSeq) {
@@ -677,7 +677,7 @@ func TestLiveScreensFiltersAppliesTheEditOnEnter(t *testing.T) {
 	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
-	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
+	choice, err := sc.filters(filterScreenInput{Models: catalogtest.Models(), Height: 24, Width: 100})
 	if err != nil {
 		t.Fatalf("filters: %v", err)
 	}
@@ -710,7 +710,7 @@ func TestLiveScreensFiltersUndecidedExitCancelsWithTheOpeningFilters(t *testing.
 
 	opened := filterState{freeOnly: true}
 	choice, err := sc.filters(filterScreenInput{
-		Filters: opened, Models: ortest.Models(), Height: 24, Width: 100,
+		Filters: opened, Models: catalogtest.Models(), Height: 24, Width: 100,
 	})
 	if err != nil {
 		t.Fatalf("filters: %v", err)
@@ -728,7 +728,7 @@ func TestLiveScreensFiltersCtrlCCancelsTheSession(t *testing.T) {
 	var out syncBuffer
 	sc := liveScreensHeadless(t, in, &out)
 
-	choice, err := sc.filters(filterScreenInput{Models: ortest.Models(), Height: 24, Width: 100})
+	choice, err := sc.filters(filterScreenInput{Models: catalogtest.Models(), Height: 24, Width: 100})
 	if err != nil {
 		t.Fatalf("filters: %v", err)
 	}
@@ -753,7 +753,7 @@ func TestLiveScreensPickCtrlFByteOpensTheFiltersScreen(t *testing.T) {
 	sc := liveScreensHeadless(t, in, &out)
 
 	choice, err := sc.pick(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+		Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100,
 	})
 	if err != nil {
 		t.Fatalf("pick: %v", err)

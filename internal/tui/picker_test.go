@@ -9,8 +9,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/openrouter-launch/internal/catalog/catalogtest"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
-	"github.com/teggen/openrouter-launch/internal/openrouter/ortest"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
@@ -29,7 +30,7 @@ func pickerFixture() pickerModel {
 func pickerFixtureWith(f filterState) pickerModel {
 	return newPickerModel(pickerInput{
 		Agent:   stubSpec("claude"),
-		Models:  ortest.Models(),
+		Models:  catalogtest.Models(),
 		Filters: f,
 		Height:  24,
 		Width:   100,
@@ -284,7 +285,7 @@ func TestPickerPreselectionSurvivesAFilterThatKeepsTheModel(t *testing.T) {
 	// apply, and the reopened picker must land back on it.
 	reopened := newPickerModel(pickerInput{
 		Agent:    stubSpec("claude"),
-		Models:   ortest.Models(),
+		Models:   catalogtest.Models(),
 		Filters:  filterState{toolsOnly: true},
 		Selected: before,
 		Height:   24, Width: 100,
@@ -306,7 +307,7 @@ func TestPickerTypingMovesToTheBestMatch(t *testing.T) {
 
 func TestPickerPreselectsTheGivenModel(t *testing.T) {
 	m := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Selected: "openai/o1-mini", Height: 24, Width: 100,
 	})
 	if got := m.visible[m.cursor].ID; got != "openai/o1-mini" {
@@ -316,7 +317,7 @@ func TestPickerPreselectsTheGivenModel(t *testing.T) {
 
 func TestPickerPreselectingAnAbsentModelFallsBackToTheTop(t *testing.T) {
 	m := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Selected: "no/such-model", Height: 24, Width: 100,
 	})
 	if m.cursor != 0 {
@@ -376,7 +377,7 @@ func TestPickerViewNamesTheAgentTheFiltersAndTheCounts(t *testing.T) {
 // description present at rest, so each half also asserts the OTHER model's
 // description is absent.
 func TestPickerViewShowsTheHighlightedModelsDescription(t *testing.T) {
-	models := ortest.Models()
+	models := catalogtest.Models()
 	models[0].Description = "Aardvark marker for the first model"
 	models[1].Description = "Bumblebee marker for the second model"
 	m := newPickerModel(pickerInput{
@@ -405,7 +406,7 @@ func TestPickerViewShowsTheHighlightedModelsDescription(t *testing.T) {
 // several-paragraph one must produce the same number of rendered lines, or
 // the list jumps as the cursor moves.
 func TestPickerViewHeightIsStableAcrossCursorMoves(t *testing.T) {
-	models := ortest.Models()
+	models := catalogtest.Models()
 	models[0].Description = "Short."
 	models[1].Description = strings.Repeat("A very long description. ", 100)
 
@@ -437,7 +438,7 @@ func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
 	for _, width := range []int{40, 60, 80, 100} {
 		t.Run(fmt.Sprintf("width=%d", width), func(t *testing.T) {
 			m := newPickerModel(pickerInput{
-				Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+				Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: width,
 			})
 
 			// EVERY line, not just the table's: the title, the description
@@ -464,7 +465,7 @@ func TestPickerViewClampsRowsToTheAvailableWidth(t *testing.T) {
 func TestPickerShedsCatalogColumnsOnNarrowTerminals(t *testing.T) {
 	headersAt := func(width int) string {
 		m := newPickerModel(pickerInput{
-			Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+			Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: width,
 		})
 		for _, line := range strings.Split(m.View(), "\n") {
 			if strings.Contains(line, "MODEL") {
@@ -514,7 +515,7 @@ func TestPickerShedsCatalogColumnsOnNarrowTerminals(t *testing.T) {
 func TestPickerTruncatesALongModelIDRatherThanSheddingAColumn(t *testing.T) {
 	m := newPickerModel(pickerInput{
 		Agent:  stubSpec("claude"),
-		Models: []openrouter.Model{{ID: strings.Repeat("very-long-vendor/", 4) + "model", ContextLength: 200000}},
+		Models: []catalog.Model{{ID: strings.Repeat("very-long-vendor/", 4) + "model", ContextLength: 200000}},
 		Height: 24, Width: 100,
 	})
 	view := m.View()
@@ -552,7 +553,7 @@ func TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights(t *testing.T) {
 	for _, height := range []int{24, 30, 40} {
 		t.Run(fmt.Sprintf("height=%d", height), func(t *testing.T) {
 			m := newPickerModel(pickerInput{
-				Agent: stubSpec("claude"), Models: ortest.Models(), Height: height, Width: 100,
+				Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: height, Width: 100,
 			})
 
 			rawLines := strings.Split(m.View(), "\n")
@@ -579,8 +580,8 @@ func TestPickerViewFitsAndKeepsTitleVisibleAtVariousHeights(t *testing.T) {
 
 func TestPickerScrollsToKeepTheCursorVisible(t *testing.T) {
 	// A list far longer than the window forces the offset to move.
-	var many []openrouter.Model
-	for _, m := range ortest.Models() {
+	var many []catalog.Model
+	for _, m := range catalogtest.Models() {
 		for i := 0; i < 20; i++ {
 			c := m
 			c.ID = m.ID + string(rune('a'+i))
@@ -605,7 +606,7 @@ func TestPickerScrollsToKeepTheCursorVisible(t *testing.T) {
 func TestPickerTitleLineStaysWithinTheTerminal(t *testing.T) {
 	const width = 60
 	m := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: width,
+		Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: width,
 	})
 	m = press(t, m, typeRunes(strings.Repeat("search-term-", 10))...)
 
@@ -620,10 +621,10 @@ func TestPickerTitleLineStaysWithinTheTerminal(t *testing.T) {
 // which is Landmine 17's outcome by another route.
 func TestPickerFooterWrapsAndIsPaidForOutOfTheList(t *testing.T) {
 	wide := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 100,
+		Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 100,
 	})
 	narrow := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(), Height: 24, Width: 40,
+		Agent: stubSpec("claude"), Models: catalogtest.Models(), Height: 24, Width: 40,
 	})
 
 	if len(wide.footer()) != 1 {
@@ -674,7 +675,7 @@ func TestHintLinesBreakBetweenHintsNeverInsideOne(t *testing.T) {
 }
 
 // modelIDList is the visible list's IDs, for failure messages.
-func modelIDList(models []openrouter.Model) []string {
+func modelIDList(models []catalog.Model) []string {
 	out := make([]string, len(models))
 	for i, m := range models {
 		out[i] = m.ID
@@ -689,7 +690,7 @@ func modelIDList(models []openrouter.Model) []string {
 // agree passes with SortModels moved inside Rank and proves nothing.
 func TestPickerSortAppliesOutsideRank(t *testing.T) {
 	unsorted := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Filters: filterState{search: "o"}, Width: 120, Height: 40,
 	})
 	if got := unsorted.visible[0].ID; got != "openai/o1-mini" {
@@ -698,7 +699,7 @@ func TestPickerSortAppliesOutsideRank(t *testing.T) {
 	}
 
 	sorted := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Filters: filterState{
 			search: "o",
 			sort:   openrouter.Sort{Key: openrouter.SortOutput},
@@ -716,7 +717,7 @@ func TestPickerSortAppliesOutsideRank(t *testing.T) {
 
 func TestPickerKeepsTheSortAcrossASearchEdit(t *testing.T) {
 	m := newPickerModel(pickerInput{
-		Agent: stubSpec("claude"), Models: ortest.Models(),
+		Agent: stubSpec("claude"), Models: catalogtest.Models(),
 		Filters: filterState{sort: openrouter.Sort{Key: openrouter.SortOutput, Desc: true}},
 		Width:   120, Height: 40,
 	})

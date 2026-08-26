@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/teggen/openrouter-launch/internal/catalog"
 	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/filters"
 	"github.com/teggen/openrouter-launch/internal/launch"
@@ -104,7 +105,7 @@ func newModelsCmd(a *app) *cobra.Command {
 // Deliberately uncapped, unlike the other listings: its widest cell is a
 // 50-character model id, already comfortably under ui.MaxTableWidth, and
 // truncating a model slug would make it impossible to copy-paste into -m.
-func modelsTable(models []openrouter.Model) ui.Table {
+func modelsTable(models []catalog.Model) ui.Table {
 	rows := make([][]string, 0, len(models))
 	for _, m := range models {
 		rows = append(rows, ui.ModelCells(m))

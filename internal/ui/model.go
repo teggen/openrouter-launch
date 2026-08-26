@@ -1,6 +1,9 @@
 package ui
 
-import "github.com/teggen/openrouter-launch/internal/openrouter"
+import (
+	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/openrouter-launch/internal/openrouter"
+)
 
 // ModelHeaders are the catalog columns. Shared by `orl models` and the TUI
 // picker for the same reason AgentStatus is shared: two renderings of the
@@ -28,7 +31,7 @@ func SortLabel(k openrouter.SortKey) string {
 }
 
 // ModelCells renders one catalog row, in ModelHeaders' order.
-func ModelCells(m openrouter.Model) []string {
+func ModelCells(m catalog.Model) []string {
 	tools := ""
 	if m.SupportsTools {
 		tools = glyphOK

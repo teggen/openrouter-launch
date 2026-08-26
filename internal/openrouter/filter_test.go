@@ -1,9 +1,13 @@
 package openrouter
 
-import "testing"
+import (
+	"testing"
 
-func filterFixture() []Model {
-	return []Model{
+	"github.com/teggen/openrouter-launch/internal/catalog"
+)
+
+func filterFixture() []catalog.Model {
+	return []catalog.Model{
 		{ID: "anthropic/claude-opus-4.6", Name: "Anthropic: Claude Opus 4.6",
 			ContextLength: 200000, PromptPricePerM: 15, CompletionPricePerM: 75,
 			SupportsTools: true, Provider: "anthropic"},
@@ -15,7 +19,7 @@ func filterFixture() []Model {
 	}
 }
 
-func ids(models []Model) []string {
+func ids(models []catalog.Model) []string {
 	out := make([]string, len(models))
 	for i, m := range models {
 		out[i] = m.ID
@@ -23,7 +27,7 @@ func ids(models []Model) []string {
 	return out
 }
 
-func equalIDs(got []Model, want []string) bool {
+func equalIDs(got []catalog.Model, want []string) bool {
 	g := ids(got)
 	if len(g) != len(want) {
 		return false
@@ -84,7 +88,7 @@ func TestApplyMaxPriceUsesCompletionPrice(t *testing.T) {
 }
 
 func TestApplyMaxPriceExcludesUnknownPricing(t *testing.T) {
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "acme/mystery", PricingUnknown: true},
 		{ID: "acme/cheap", CompletionPricePerM: 1},
 	}
@@ -96,7 +100,7 @@ func TestApplyMaxPriceExcludesUnknownPricing(t *testing.T) {
 }
 
 func TestApplyFreeOnlyExcludesUnknownPricing(t *testing.T) {
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "acme/mystery", PricingUnknown: true},
 		{ID: "acme/free"},
 	}
@@ -131,35 +135,9 @@ func TestApplyCombinesFilters(t *testing.T) {
 	}
 }
 
-func TestFindByID(t *testing.T) {
-	m, ok := FindByID(filterFixture(), "openai/o1-mini")
-	if !ok {
-		t.Fatal("model not found")
-	}
-	if m.Provider != "openai" {
-		t.Errorf("provider = %q, want openai", m.Provider)
-	}
-	if _, ok := FindByID(filterFixture(), "nope/nope"); ok {
-		t.Error("unexpectedly found a missing model")
-	}
-}
-
-func TestSuggest(t *testing.T) {
-	got := Suggest(filterFixture(), "claude", 5)
-	if len(got) != 1 || got[0] != "anthropic/claude-opus-4.6" {
-		t.Errorf("got %v, want [anthropic/claude-opus-4.6]", got)
-	}
-}
-
-func TestSuggestRespectsLimit(t *testing.T) {
-	if got := Suggest(filterFixture(), "", 2); len(got) != 2 {
-		t.Errorf("got %d suggestions, want 2", len(got))
-	}
-}
-
 func TestApplySearchMatchesIDOnly(t *testing.T) {
 	// Isolates the ID branch: search term in ID but not in Name.
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "vendor/uniqueslug-model", Name: "Generic Model"},
 	}
 	got := Apply(models, Filter{Search: "uniqueslug"})
@@ -171,7 +149,7 @@ func TestApplySearchMatchesIDOnly(t *testing.T) {
 
 func TestApplySearchMatchesNameOnly(t *testing.T) {
 	// Isolates the Name branch: search term in Name but not in ID.
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "vendor/model", Name: "Distinctive AI Name"},
 	}
 	got := Apply(models, Filter{Search: "distinctive"})
@@ -183,7 +161,7 @@ func TestApplySearchMatchesNameOnly(t *testing.T) {
 
 func TestApplyMaxPriceAtCeiling(t *testing.T) {
 	// Model priced exactly at the ceiling should be kept.
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "vendor/atceiling", CompletionPricePerM: 10},
 		{ID: "vendor/above", CompletionPricePerM: 10.01},
 	}
@@ -196,7 +174,7 @@ func TestApplyMaxPriceAtCeiling(t *testing.T) {
 
 func TestApplyProviderCaseInsensitive(t *testing.T) {
 	// Provider matching should be case-insensitive.
-	models := []Model{
+	models := []catalog.Model{
 		{ID: "openai/gpt-4", Provider: "openai"},
 	}
 	got := Apply(models, Filter{Provider: "OpenAI"})

@@ -6,17 +6,13 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 // DefaultBaseURL is the OpenRouter API root used for catalog requests.
 // Note this differs from the base URL agents are pointed at.
 const DefaultBaseURL = "https://openrouter.ai/api/v1"
-
-// Catalog supplies the model list. Swapping this implementation is the
-// single-file change needed to adopt an official SDK later.
-type Catalog interface {
-	Models(ctx context.Context) ([]Model, error)
-}
 
 // defaultMaxCatalogBytes caps the catalog response read. The real catalog
 // measured 0.65 MiB across 413 models on 2026-08-16, so 64 MiB is roughly
@@ -48,8 +44,9 @@ func NewClient() *Client {
 	}
 }
 
-// Models fetches the full catalog, most popular first.
-func (c *Client) Models(ctx context.Context) ([]Model, error) {
+// Models fetches the full catalog, most popular first. It is what makes
+// *Client a catalog.Catalog.
+func (c *Client) Models(ctx context.Context) ([]catalog.Model, error) {
 	url := c.BaseURL + "/models?sort=most-popular"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {

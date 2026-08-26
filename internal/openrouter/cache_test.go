@@ -2,21 +2,25 @@ package openrouter
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/teggen/openrouter-launch/internal/catalog"
 )
 
 type stubCatalog struct {
-	models []Model
+	models []catalog.Model
 	err    error
 	calls  int
 }
 
-func (s *stubCatalog) Models(ctx context.Context) ([]Model, error) {
+func (s *stubCatalog) Models(ctx context.Context) ([]catalog.Model, error) {
 	s.calls++
 	if s.err != nil {
 		return nil, s.err
@@ -24,11 +28,11 @@ func (s *stubCatalog) Models(ctx context.Context) ([]Model, error) {
 	return s.models, nil
 }
 
-func testModels() []Model {
-	return []Model{{ID: "anthropic/claude-opus-4.6", Provider: "anthropic"}}
+func testModels() []catalog.Model {
+	return []catalog.Model{{ID: "anthropic/claude-opus-4.6", Provider: "anthropic"}}
 }
 
-func newTestCache(t *testing.T, src Catalog, now time.Time) *Cache {
+func newTestCache(t *testing.T, src catalog.Catalog, now time.Time) *Cache {
 	t.Helper()
 	return &Cache{
 		Path:   filepath.Join(t.TempDir(), "models.json"),
@@ -231,5 +235,68 @@ func TestCachePathFallsBackToHomeCache(t *testing.T) {
 	expected := filepath.Join(home, ".cache", "openrouter-launch", "models.json")
 	if path != expected {
 		t.Errorf("got %s, want %s", path, expected)
+	}
+}
+
+// TestCacheTreatsAnOlderSchemaAsAMiss is the guard on the one failure mode
+// catalog.Model's missing json tags create. A file from a previous format
+// decodes WITHOUT error — encoding/json ignores what it cannot match and
+// leaves the rest zero — so a renamed or retagged price field would produce a
+// full catalog of $0.00 models rather than a decode failure. Free is a claim;
+// this is what stops the tool making it. See CacheSchema.
+func TestCacheTreatsAnOlderSchemaAsAMiss(t *testing.T) {
+	src := &stubCatalog{models: testModels()}
+	now := time.Unix(1000, 0)
+	c := newTestCache(t, src, now)
+
+	// The pre-schema on-disk shape, fresh by every other measure.
+	legacy := fmt.Sprintf(`{"fetched_at":%q,"models":[{"ID":"a/b","PromptPricePerM":15}]}`,
+		now.Format(time.RFC3339Nano))
+	if err := os.WriteFile(c.Path, []byte(legacy), 0o600); err != nil {
+		t.Fatalf("write legacy cache: %v", err)
+	}
+
+	snap, err := c.Load(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if src.calls != 1 {
+		t.Errorf("source called %d times, want 1: a file with no schema must be a miss", src.calls)
+	}
+	if len(snap.Models) != 1 || snap.Models[0].ID != testModels()[0].ID {
+		t.Errorf("Load served %v, want the freshly fetched models", snap.Models)
+	}
+}
+
+// TestCacheRoundTripsWhatItWrites is the other half: the schema check must
+// reject only OTHER versions, not everything. Without this, a check that
+// rejected every file would pass the test above while disabling the cache.
+func TestCacheRoundTripsWhatItWrites(t *testing.T) {
+	src := &stubCatalog{models: testModels()}
+	now := time.Unix(1000, 0)
+	c := newTestCache(t, src, now)
+
+	if _, err := c.Load(context.Background(), false); err != nil {
+		t.Fatalf("first Load: %v", err)
+	}
+	var onDisk struct {
+		Schema int `json:"schema"`
+	}
+	data, err := os.ReadFile(c.Path)
+	if err != nil {
+		t.Fatalf("read cache: %v", err)
+	}
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("unmarshal cache: %v", err)
+	}
+	if onDisk.Schema != CacheSchema {
+		t.Errorf("written schema = %d, want %d", onDisk.Schema, CacheSchema)
+	}
+
+	if _, err := c.Load(context.Background(), false); err != nil {
+		t.Fatalf("second Load: %v", err)
+	}
+	if src.calls != 1 {
+		t.Errorf("source called %d times, want 1: the cache did not serve its own file", src.calls)
 	}
 }
