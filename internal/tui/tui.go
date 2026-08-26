@@ -347,8 +347,12 @@ func (s *session) handlePlanError(warnings []launch.Warning, err error) (state, 
 		lines = append(lines, "warning: "+w.Message)
 	}
 
-	// The API key is the one failure this screen can fix in place.
-	if errors.Is(err, config.ErrNoAPIKey) {
+	// The API key is the one failure this screen can fix in place — whether
+	// no key is configured or the configured one is unusable. Both are fixed
+	// by collecting a new key, and treating only the first as recoverable is
+	// what once left a user with a NUL in their saved key unable to launch
+	// anything AND never offered the prompt, because a key was present.
+	if errors.Is(err, config.ErrNoAPIKey) || errors.Is(err, config.ErrUnusableAPIKey) {
 		return s.promptForAPIKey(err, lines)
 	}
 
@@ -687,22 +691,9 @@ func validateAPIKey(v string) error {
 	if strings.TrimSpace(v) == "" {
 		return errors.New("a key is required — get one at https://openrouter.ai/keys")
 	}
-	if i := strings.IndexFunc(v, isControlChar); i >= 0 {
-		return fmt.Errorf("that key contains a control character (%#02x at position %d) — "+
-			"paste it again; copying from a terminal can pick up stray bytes", v[i], i)
+	if err := config.ValidateAPIKey(v); err != nil {
+		return fmt.Errorf("that key %v — paste it again; copying from a terminal can "+
+			"pick up bytes that stay invisible afterwards", err)
 	}
 	return nil
-}
-
-// isControlChar reports whether r is a control character. It mirrors the
-// agent module's rule for what an environment value may not contain: C0
-// (below 0x20) covers NUL, tab, carriage return and newline; 0x7f is DEL.
-//
-// Duplicated rather than exported from there on purpose. The module's copy is
-// what actually protects the launch and must keep working for every consuming
-// tool; this one exists so THIS tool can refuse a bad key at the moment it is
-// typed, which is the only point where the user still has the good one in
-// their clipboard.
-func isControlChar(r rune) bool {
-	return r < 0x20 || r == 0x7f
 }

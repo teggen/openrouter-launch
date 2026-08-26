@@ -341,3 +341,64 @@ func TestRecordSelectionDoesNotClobberEditsSincePlanning(t *testing.T) {
 		t.Errorf("APIKey = %q, want the saved key preserved", got.APIKey)
 	}
 }
+
+// TestResolveAPIKeyReportsAnUnusableStoredKey covers the failure a Windows
+// user actually hit: a saved key containing a NUL. encoding/json escapes it
+// on save and decodes it back on load, so the file looks correct to any
+// reader and the value only fails much later, inside os/exec.
+//
+// The error identity is the load-bearing part. ErrUnusableAPIKey is what lets
+// the TUI re-open the key prompt; reported as a generic error the tool could
+// not fix, from inside itself, a file it had written.
+func TestResolveAPIKeyReportsAnUnusableStoredKey(t *testing.T) {
+	t.Setenv(APIKeyEnvVar, "")
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	_, err := ResolveAPIKey(&Config{APIKey: "sk-or-v1-abc\x00def"})
+	if err == nil {
+		t.Fatal("ResolveAPIKey accepted a stored key containing a NUL")
+	}
+	if !errors.Is(err, ErrUnusableAPIKey) {
+		t.Errorf("error %v is not ErrUnusableAPIKey; the TUI keys its recovery on that", err)
+	}
+	// Not ErrNoAPIKey: the two carry different messages, and conflating them
+	// would tell a user with a broken saved key to "set a key" they already set.
+	if errors.Is(err, ErrNoAPIKey) {
+		t.Error("an unusable key must not report as a missing one")
+	}
+	// The user cannot see the bad byte in their editor, so the message has to
+	// say where the file is.
+	if !strings.Contains(err.Error(), "config.json") {
+		t.Errorf("error %q does not name the file holding the bad key", err)
+	}
+}
+
+// The environment is validated too. It cannot actually carry a NUL — the OS
+// forbids it — but it can carry other control characters on some paths, and a
+// rule applied to one source and not the other is the kind of gap that gets
+// found in production.
+func TestResolveAPIKeyReportsAnUnusableEnvironmentKey(t *testing.T) {
+	t.Setenv(APIKeyEnvVar, "sk-or-v1-abc\rdef")
+
+	_, err := ResolveAPIKey(nil)
+	if err == nil {
+		t.Fatal("ResolveAPIKey accepted an environment key with a carriage return")
+	}
+	if !errors.Is(err, ErrUnusableAPIKey) {
+		t.Errorf("error %v is not ErrUnusableAPIKey", err)
+	}
+	if !strings.Contains(err.Error(), APIKeyEnvVar) {
+		t.Errorf("error %q does not name the variable holding the bad key", err)
+	}
+}
+
+func TestValidateAPIKeyAcceptsAnOrdinaryKey(t *testing.T) {
+	if err := ValidateAPIKey("sk-or-v1-0a1b2c3d_4e5f-6789.abcdef"); err != nil {
+		t.Errorf("ValidateAPIKey rejected an ordinary key: %v", err)
+	}
+	// Without this the rejections above are satisfied by a validator that
+	// refuses everything.
+	if err := ValidateAPIKey(""); err != nil {
+		t.Errorf("ValidateAPIKey rejected an empty key; emptiness is ErrNoAPIKey's job: %v", err)
+	}
+}

@@ -1521,3 +1521,53 @@ func TestKeyPromptCarriesTheValidator(t *testing.T) {
 		t.Errorf("the prompt's Validate rejected an ordinary key: %v", err)
 	}
 }
+
+// TestUnusableSavedKeyReopensThePrompt is the recovery a Windows user needed
+// and did not have. Their saved key contained a NUL, so every launch was
+// refused — and because a key WAS present, the prompt that could have
+// replaced it was never offered. The tool could not fix a file it had
+// written, from inside itself.
+//
+// Keyed on the error identity rather than on message text: the prompt opens
+// because ResolveAPIKey reports ErrUnusableAPIKey, and that is the contract
+// worth pinning.
+func TestUnusableSavedKeyReopensThePrompt(t *testing.T) {
+	svc, dir := newTestService(t)
+	t.Setenv(config.APIKeyEnvVar, "")
+
+	// A saved key exactly as encoding/json stores one containing a NUL.
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cfg.APIKey = "sk-or-v1-abc\x00def"
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	_ = dir
+
+	spec := stubSpec("claude")
+	s := &script{
+		t:      t,
+		root:   []rootChoice{{Kind: choiceAgent, Agent: spec}},
+		pick:   []pickerChoice{{Kind: pickModel, ModelID: "anthropic/claude-opus-4.6"}},
+		prompt: []promptResult{{value: "sk-or-v1-replacement", ok: true}},
+	}
+	_, _ = run(context.Background(), stubOptions(svc, spec), s.screens())
+
+	if len(s.promptIn) == 0 {
+		t.Fatal("the key prompt was never offered; a saved-but-unusable key is a dead end")
+	}
+
+	// And the replacement must actually land, or the next run repeats it.
+	after, err := config.Load()
+	if err != nil {
+		t.Fatalf("Load after: %v", err)
+	}
+	if strings.ContainsRune(after.APIKey, 0) {
+		t.Errorf("the unusable key survived: %q", after.APIKey)
+	}
+	if after.APIKey != "sk-or-v1-replacement" {
+		t.Errorf("saved key = %q, want the replacement", after.APIKey)
+	}
+}

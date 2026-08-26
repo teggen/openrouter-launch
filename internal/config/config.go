@@ -14,6 +14,14 @@ const APIKeyEnvVar = "OPENROUTER_API_KEY"
 // ErrNoAPIKey is returned when no key is available from any source.
 var ErrNoAPIKey = errors.New("no OpenRouter API key configured")
 
+// ErrUnusableAPIKey is returned when a key IS configured but cannot be used.
+//
+// Distinct from ErrNoAPIKey because the messages differ — one says "set a
+// key", the other has to say which stored value is broken and where it lives
+// — but both are recoverable by collecting a new key, and the TUI treats them
+// alike for that reason.
+var ErrUnusableAPIKey = errors.New("the configured OpenRouter API key cannot be used")
+
 // Filters is the persisted model-picker filter state. Zero numeric values
 // mean the filter is unset.
 type Filters struct {
@@ -134,12 +142,57 @@ func Save(cfg *Config) error {
 	return nil
 }
 
+// ValidateAPIKey reports whether a key can be used, and is the single rule
+// this tool applies wherever one arrives — typed at the prompt, read back
+// from the config file, or taken from the environment.
+//
+// A control character is fatal: os/exec refuses an entire environment
+// containing a NUL, and a stray carriage return or newline would instead
+// travel silently into an Authorization header and come back as a 401 nobody
+// can explain. strings.TrimSpace does not catch either, because NUL is not
+// whitespace and an embedded CR is not at an end.
+//
+// The key is never echoed in the error. It is a secret, and one whose defect
+// is invisible anyway — the byte and its offset are what a user needs.
+func ValidateAPIKey(key string) error {
+	for i := 0; i < len(key); i++ {
+		if b := key[i]; b < 0x20 || b == 0x7f {
+			return fmt.Errorf("contains a control character (%#02x at byte %d)", b, i)
+		}
+	}
+	return nil
+}
+
 // ResolveAPIKey returns the API key, preferring the environment.
+//
+// A key that exists but cannot be used is reported as ErrUnusableAPIKey
+// rather than as a generic failure, because the two are recoverable in the
+// same way — by collecting a new one — and only a distinguishable error lets
+// the TUI offer that instead of dead-ending. Before this, a saved key with a
+// NUL in it refused every launch AND never re-opened the key prompt, since
+// that prompt is offered only when no key is configured at all: the tool
+// could not fix, from inside itself, a file it had written.
 func ResolveAPIKey(cfg *Config) (string, error) {
 	if key := os.Getenv(APIKeyEnvVar); key != "" {
+		if err := ValidateAPIKey(key); err != nil {
+			return "", fmt.Errorf("%w: the key in %s %v; unset or correct it",
+				ErrUnusableAPIKey, APIKeyEnvVar, err)
+		}
 		return key, nil
 	}
 	if cfg != nil && cfg.APIKey != "" {
+		if err := ValidateAPIKey(cfg.APIKey); err != nil {
+			// Naming the file is the point. encoding/json escapes a control
+			// character on save and decodes it back on load, so the value
+			// looks correct in any editor — a user told only "your key is
+			// wrong" has nowhere to go.
+			where := "your config file"
+			if path, perr := Path(); perr == nil {
+				where = path
+			}
+			return "", fmt.Errorf("%w: the saved key %v. Re-enter it, or remove \"api_key\" from %s",
+				ErrUnusableAPIKey, err, where)
+		}
 		return cfg.APIKey, nil
 	}
 	return "", fmt.Errorf("%w: set %s or run with a saved key (get one at https://openrouter.ai/keys)",
