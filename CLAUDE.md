@@ -37,7 +37,8 @@ made and what was tried.
 
 ```bash
 make help                                        # every target
-make build                                       # ./orl with version info
+make build                                       # ./orl, against the TAGGED agentlaunch
+make build-workspace                             # ./orl, against the LOCAL agentlaunch
 make test                                        # full suite
 make pre-commit                                  # clean, fmt-check, vet, lint, security, test
 make ci                                          # everything CI runs (GOWORK=off — see below)
@@ -69,8 +70,13 @@ once found, is authoritative. Keep it scoped to the repo that needs it.
 
 `make ci` therefore sets `GOWORK=off` (target-specific, so it reaches every
 prerequisite), which is what makes a green run here the same claim CI makes:
-resolved from the proxy, at the tagged version. Everything else keeps the
-workspace on purpose. **Never commit a `replace` directive** — it passes
+resolved from the proxy, at the tagged version. `build` and `snapshot` set it
+too — they produce artifacts that outlive the shell, and one built inside the
+workspace records `dep github.com/teggen/agentlaunch (devel)`: no version, no
+hash, and no way for `go version -m` to say afterwards which source went into
+it. `build-workspace` is the deliberate opt-in for trying a local module
+change in the real binary. Tests keep the workspace, because exercising local
+module edits is the entire reason it exists. **Never commit a `replace` directive** — it passes
 `tidy-check` locally and fails CI. Changing the module means tagging it there
 first, then `go get github.com/teggen/agentlaunch@vX.Y.Z` here.
 

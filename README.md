@@ -222,8 +222,17 @@ in its `use` list stops building entirely. `go.work` is gitignored here.
 The workspace makes your local checkout shadow the published module, so
 `go test ./...` here exercises your edits immediately. `make ci` deliberately
 sets `GOWORK=off` so it resolves the *tagged* version instead — that is what
-makes a green run locally the same claim CI makes. Never commit a `replace`
-directive: it passes `make tidy-check` on your machine and fails in CI.
+makes a green run locally the same claim CI makes.
+
+`make build` and `make snapshot` set it too. A binary built inside the
+workspace records `dep github.com/teggen/agentlaunch (devel)` — no version and
+no hash, so nothing can tell later which source it contains, which is a poor
+property for an artifact you might keep or install. Use `make build-workspace`
+when you specifically want a local module change in the binary; it says so on
+stdout.
+
+Never commit a `replace` directive: it passes `make tidy-check` on your
+machine and fails in CI.
 
 A change spanning both repositories is two commits and a tag, in order: land
 and tag the module, then `go get github.com/teggen/agentlaunch@vX.Y.Z` here.

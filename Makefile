@@ -62,9 +62,30 @@ help: ## List the available targets
 
 ## ---- build -----------------------------------------------------------
 
+# GOWORK=off, so the binary links the TAGGED github.com/teggen/agentlaunch
+# from go.mod rather than the local checkout ./go.work points at.
+#
+# A binary is an artifact that outlives the shell that made it. Built inside
+# the workspace it records `dep github.com/teggen/agentlaunch (devel)` — no
+# version, no hash, no way to tell afterwards which source went into it, and
+# `go version -m` cannot recover it. That is a bad property for the one output
+# here somebody might keep, copy, or install. Tests keep the workspace,
+# because exercising local module edits is the entire reason it exists.
+#
+# Use build-workspace when you WANT the local module in the binary.
 .PHONY: build
-build: ## Build ./$(BINARY) with version information linked in
+build: export GOWORK := off
+build: ## Build ./$(BINARY) against the tagged agentlaunch (what a release links)
 	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BINARY) .
+
+# The counterpart, for trying a local agentlaunch change in the real binary
+# before tagging it. Named rather than a flag on `build` so the artifact's
+# provenance is a choice someone made, not a property of their environment.
+.PHONY: build-workspace
+build-workspace: ## Build ./$(BINARY) against the LOCAL agentlaunch checkout (./go.work)
+	@test -f go.work || { echo "no go.work here — this target needs one; see README"; exit 1; }
+	go build -trimpath -ldflags '$(LDFLAGS)' -o $(BINARY) .
+	@echo "NOTE: $(BINARY) links agentlaunch from ./go.work, not the tagged module."
 
 .PHONY: clean
 clean: ## Remove build artifacts and coverage output
@@ -234,7 +255,13 @@ release-check: ## Validate .goreleaser.yaml
 	@test -x $(GOBIN)/goreleaser || { echo "goreleaser missing — run: make tools-release"; exit 1; }
 	$(GOBIN)/goreleaser check
 
+# GOWORK=off for the same reason `build` sets it, and with more at stake:
+# these are the six artifacts a release publishes, and .goreleaser.yaml's
+# before-hook runs `go mod tidy`, which must resolve agentlaunch exactly as
+# the release workflow does — from the proxy, at the version in go.mod.
+# A snapshot built inside the workspace would silently ship a local checkout.
 .PHONY: snapshot
+snapshot: export GOWORK := off
 snapshot: ## Build every release artifact locally, publishing nothing
 	@test -x $(GOBIN)/goreleaser || { echo "goreleaser missing — run: make tools-release"; exit 1; }
 	$(GOBIN)/goreleaser release --snapshot --clean --skip=publish
