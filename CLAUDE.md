@@ -54,11 +54,18 @@ deliberately: prebuilt ones abort once your Go moves ahead of theirs.
 
 **Two repositories, one workspace.** The launch layer is
 `github.com/teggen/agentlaunch`, developed alongside this one at
-`~/projects/agentlaunch` with an uncommitted `~/projects/go.work` covering
-both. The workspace makes the local checkout shadow the published module for
-every `go` command, which is what lets the two be edited together — and it
-means a plain `go test ./...` can pass against source that exists on no other
-machine.
+`~/projects/agentlaunch`. An uncommitted `go.work` **in this repository's
+root** (gitignored) lists `.` and `../agentlaunch`, so the local checkout
+shadows the published module for every `go` command run here — which is what
+lets the two be edited together, and means a plain `go test ./...` can pass
+against source that exists on no other machine.
+
+It must NOT live at `~/projects/`. `go` discovers a workspace by walking UP
+from the working directory, so one placed in the general projects folder
+applies to every Go module beneath it — and a module absent from the `use`
+list then fails outright: `go build ./...` in `~/projects/ollama` died with
+"directory prefix . does not contain modules listed in go.work". A workspace,
+once found, is authoritative. Keep it scoped to the repo that needs it.
 
 `make ci` therefore sets `GOWORK=off` (target-specific, so it reaches every
 prerequisite), which is what makes a green run here the same claim CI makes:

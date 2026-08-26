@@ -6,3 +6,10 @@ openrouter-launch
 /gosec.log
 /dist/
 /HANDOFF.md
+
+# The Go workspace that lets this repo be built against a local agentlaunch
+# checkout instead of the tagged module. Committing it would make CI resolve
+# a sibling module from a path that does not exist there — the same failure a
+# committed `replace` directive causes, green locally and broken in CI.
+/go.work
+/go.work.sum

@@ -211,8 +211,13 @@ Working on both at once wants a Go workspace, which must stay **uncommitted**:
 
 ```bash
 git clone https://github.com/teggen/agentlaunch ../agentlaunch
-cd .. && go work init ./agentlaunch ./openrouter-launch
+go work init . ../agentlaunch      # run from THIS repo's root — see below
 ```
+
+Create the workspace **inside this repository**, not in the parent directory.
+Go finds a `go.work` by walking up from wherever you run it, so one placed in
+a folder that holds several projects governs all of them, and any module not
+in its `use` list stops building entirely. `go.work` is gitignored here.
 
 The workspace makes your local checkout shadow the published module, so
 `go test ./...` here exercises your edits immediately. `make ci` deliberately
