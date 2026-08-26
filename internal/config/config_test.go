@@ -234,3 +234,110 @@ func TestSortRoundTripsThroughTheConfigFile(t *testing.T) {
 		t.Errorf("round trip lost the sort: %+v", back.Sort)
 	}
 }
+
+// APIKey and RecordSelection are the two adapters internal/launch is wired
+// with. They are thin, but they are the ONLY place this tool's settings store
+// meets the planner, and the planner can no longer test them: it does not
+// know this package exists.
+
+func TestAPIKeyPrefersTheEnvironment(t *testing.T) {
+	withTempConfig(t)
+	if err := Save(&Config{APIKey: "sk-from-file"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	t.Setenv(APIKeyEnvVar, "sk-from-env")
+
+	got, err := APIKey()
+	if err != nil {
+		t.Fatalf("APIKey: %v", err)
+	}
+	if got != "sk-from-env" {
+		t.Errorf("APIKey = %q, want the environment's value", got)
+	}
+}
+
+func TestAPIKeyFallsBackToTheSavedKey(t *testing.T) {
+	withTempConfig(t)
+	if err := Save(&Config{APIKey: "sk-from-file"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	t.Setenv(APIKeyEnvVar, "")
+
+	got, err := APIKey()
+	if err != nil {
+		t.Fatalf("APIKey: %v", err)
+	}
+	if got != "sk-from-file" {
+		t.Errorf("APIKey = %q, want the saved key", got)
+	}
+}
+
+// TestAPIKeyReportsErrNoAPIKeyUnwrapped is what the TUI's key prompt hangs
+// on: launch.Plan returns this error untouched, and internal/tui branches on
+// errors.Is to prompt in place rather than end the session. Wrapping it here
+// with extra context would keep errors.Is working but put that context in
+// front of the user at the prompt.
+func TestAPIKeyReportsErrNoAPIKeyUnwrapped(t *testing.T) {
+	withTempConfig(t)
+	t.Setenv(APIKeyEnvVar, "")
+
+	_, err := APIKey()
+	if !errors.Is(err, ErrNoAPIKey) {
+		t.Fatalf("APIKey returned %v, want ErrNoAPIKey", err)
+	}
+}
+
+func TestRecordSelectionPersists(t *testing.T) {
+	withTempConfig(t)
+
+	if err := RecordSelection("claude", "anthropic/claude-opus-4.6"); err != nil {
+		t.Fatalf("RecordSelection: %v", err)
+	}
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.LastAgent != "claude" || cfg.LastModel != "anthropic/claude-opus-4.6" {
+		t.Errorf("LastAgent/LastModel = %q/%q", cfg.LastAgent, cfg.LastModel)
+	}
+}
+
+// TestRecordSelectionDoesNotClobberEditsSincePlanning is the reason this
+// re-reads rather than taking a *Config from the caller. In the TUI a profile
+// can be added with ctrl+s after the plan is built and before the launch, and
+// a stale in-memory config written back over it would delete the profile the
+// user just saved — silently, in the same keystroke that started the agent.
+func TestRecordSelectionDoesNotClobberEditsSincePlanning(t *testing.T) {
+	withTempConfig(t)
+
+	// A config as it was when planning began.
+	if err := Save(&Config{APIKey: "sk-or-test"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	// An edit made between planning and launching.
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if err := cfg.AddProfile(Profile{Name: "opus-cc", Agent: "claude", Model: "anthropic/claude-opus-4.6"}); err != nil {
+		t.Fatalf("AddProfile: %v", err)
+	}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	if err := RecordSelection("claude", "anthropic/claude-opus-4.6"); err != nil {
+		t.Fatalf("RecordSelection: %v", err)
+	}
+
+	got, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(got.Profiles) != 1 {
+		t.Errorf("profiles = %+v, want the one added between planning and launching", got.Profiles)
+	}
+	if got.APIKey != "sk-or-test" {
+		t.Errorf("APIKey = %q, want the saved key preserved", got.APIKey)
+	}
+}

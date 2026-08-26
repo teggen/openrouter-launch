@@ -30,6 +30,24 @@ func (c *countingCatalog) Models(context.Context) ([]catalog.Model, error) {
 	return c.models, nil
 }
 
+// appService is the wiring internal/cli builds in production (see
+// cli.newService), rebuilt here because these tests are about the TUI's
+// behavior against the REAL settings store and cache. The ErrNoAPIKey branch
+// is only meaningful against config.APIKey, and the refresh-spent-once
+// assertions are only meaningful against the real on-disk cache.
+//
+// Run is never the point: the driver returns a plan and the CALLER launches,
+// so anything reaching it is a bug this makes loud.
+func appService(source catalog.Catalog) *launch.Service {
+	return &launch.Service{
+		LoadCatalog:     openrouter.Snapshotter(source),
+		APIKey:          config.APIKey,
+		RecordSelection: config.RecordSelection,
+		StageDir:        config.Dir,
+		Run:             func(agent.Command) error { return errors.New("the driver must not launch") },
+	}
+}
+
 // newTestService isolates config and cache to a temp dir and provides an API
 // key, so Plan reaches its final guard instead of stopping at the key check.
 func newTestService(t *testing.T) (*launch.Service, *countingCatalog) {
@@ -40,11 +58,7 @@ func newTestService(t *testing.T) (*launch.Service, *countingCatalog) {
 	t.Setenv(config.APIKeyEnvVar, "test-key")
 
 	cat := &countingCatalog{models: catalogtest.Models()}
-	return &launch.Service{
-		Catalog: cat,
-		// Never called: the driver returns a plan and the caller launches.
-		Run: func(agent.Command) error { return errors.New("the driver must not launch") },
-	}, cat
+	return appService(cat), cat
 }
 
 // erroringCatalog always fails, forcing Service.Snapshot down the
@@ -710,10 +724,7 @@ func TestRunStepConfirmAcknowledgeModeForAStaleCatalog(t *testing.T) {
 	t.Setenv(config.APIKeyEnvVar, "test-key")
 	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
 
-	svc := &launch.Service{
-		Catalog: erroringCatalog{},
-		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
-	}
+	svc := appService(erroringCatalog{})
 	spec := stubSpec("claude")
 	s := &script{
 		t:       t,
@@ -1118,11 +1129,7 @@ func TestRunRendersWarningsAccumulatedBeforeAFatalGuard(t *testing.T) {
 	// before it ever reaches the unknown-model guard below it.
 	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
 
-	svc := &launch.Service{
-		Catalog: erroringCatalog{},
-		// Never called: the driver returns a plan and the caller launches.
-		Run: func(agent.Command) error { return errors.New("the driver must not launch") },
-	}
+	svc := appService(erroringCatalog{})
 	spec := stubSpec("claude")
 	s := &script{
 		t: t,
@@ -1340,10 +1347,7 @@ func TestRunDecliningTheAPIKeyPromptRendersAccumulatedWarnings(t *testing.T) {
 	t.Setenv(config.APIKeyEnvVar, "")
 	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
 
-	svc := &launch.Service{
-		Catalog: erroringCatalog{},
-		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
-	}
+	svc := appService(erroringCatalog{})
 	spec := stubSpec("claude")
 	s := &script{
 		t:    t,
@@ -1378,10 +1382,7 @@ func TestRunAPIKeyRetryExhaustedRendersAccumulatedWarnings(t *testing.T) {
 	t.Setenv(config.APIKeyEnvVar, "")
 	seedCatalogCache(t, time.Now().Add(-48*time.Hour))
 
-	svc := &launch.Service{
-		Catalog: erroringCatalog{},
-		Run:     func(agent.Command) error { return errors.New("the driver must not launch") },
-	}
+	svc := appService(erroringCatalog{})
 	spec := stubSpec("claude")
 	s := &script{
 		t:    t,

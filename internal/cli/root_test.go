@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -40,5 +41,43 @@ func TestNewRootCmdPanicsOnNilRegistry(t *testing.T) {
 	}
 	if !strings.Contains(fmt.Sprint(msg), "Registry") {
 		t.Errorf("panic should name the missing argument, got: %v", msg)
+	}
+}
+
+// TestNewServiceWiresEverySeam guards the composition root against the one
+// way it can fail silently. launch.Service is now nothing but function
+// fields, and a nil one is not a compile error — LoadCatalog and APIKey
+// report themselves missing at the first launch, but RecordSelection nil is a
+// SUPPORTED configuration meaning "this tool does not remember selections",
+// so forgetting it here would quietly delete a feature.
+//
+// The field count is asserted for the same reason: a seam added to
+// launch.Service and not wired here would otherwise be nil in production
+// while every test in this package still passed.
+func TestNewServiceWiresEverySeam(t *testing.T) {
+	svc := newService(nil)
+
+	for _, f := range []struct {
+		name string
+		set  bool
+	}{
+		{"LoadCatalog", svc.LoadCatalog != nil},
+		{"APIKey", svc.APIKey != nil},
+		{"RecordSelection", svc.RecordSelection != nil},
+		{"StageDir", svc.StageDir != nil},
+	} {
+		if !f.set {
+			t.Errorf("newService left %s nil", f.name)
+		}
+	}
+
+	// Run and RunWait are deliberately nil: agent.Run and agent.RunWait are
+	// the right defaults, because a process handoff is a syscall rather than
+	// a policy this tool gets to have an opinion about.
+	const wantFields = 6
+	if got := reflect.TypeOf(launch.Service{}).NumField(); got != wantFields {
+		t.Errorf("launch.Service has %d fields, this test knows about %d; "+
+			"a new seam must be wired in newService or deliberately left to its default",
+			got, wantFields)
 	}
 }

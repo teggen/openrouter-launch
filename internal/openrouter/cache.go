@@ -136,3 +136,30 @@ func CachePath() (string, error) {
 	}
 	return filepath.Join(dir, "openrouter-launch", "models.json"), nil
 }
+
+// Snapshotter returns the catalog loader this tool runs on: source read
+// through the on-disk cache at CachePath, considered fresh for DefaultTTL. A
+// nil source means the live public client.
+//
+// It exists because internal/launch must not name an endpoint, a cache
+// location or a TTL — those are three separate facts about THIS tool, and a
+// planner shared with a second one would carry all three as defaults it could
+// not honor. Composing them is this package's job; the planner takes the
+// resulting func.
+//
+// CachePath is resolved per call rather than once at construction, because
+// XDG_CACHE_HOME can change between calls — which is exactly what every test
+// that isolates the cache does.
+func Snapshotter(source catalog.Catalog) func(context.Context, bool) (catalog.Snapshot, error) {
+	if source == nil {
+		source = NewClient()
+	}
+	return func(ctx context.Context, refresh bool) (catalog.Snapshot, error) {
+		path, err := CachePath()
+		if err != nil {
+			return catalog.Snapshot{}, err
+		}
+		cache := &Cache{Path: path, TTL: DefaultTTL, Source: source}
+		return cache.Load(ctx, refresh)
+	}
+}

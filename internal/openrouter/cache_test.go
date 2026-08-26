@@ -300,3 +300,98 @@ func TestCacheRoundTripsWhatItWrites(t *testing.T) {
 		t.Errorf("source called %d times, want 1: the cache did not serve its own file", src.calls)
 	}
 }
+
+// TestSnapshotterReadsThroughTheCache pins the composition internal/launch no
+// longer performs: source behind Cache, at CachePath, fresh for DefaultTTL.
+// Those are three separate facts about this tool, and the planner used to
+// name all three.
+func TestSnapshotterReadsThroughTheCache(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	src := &stubCatalog{models: testModels()}
+
+	load := Snapshotter(src)
+	snap, err := load(context.Background(), false)
+	if err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+	if len(snap.Models) != len(testModels()) {
+		t.Errorf("got %d models, want %d", len(snap.Models), len(testModels()))
+	}
+
+	// The file landed where CachePath says, which is what makes the second
+	// load a cache hit rather than a second fetch.
+	path, err := CachePath()
+	if err != nil {
+		t.Fatalf("CachePath: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("Snapshotter did not write the cache at CachePath: %v", err)
+	}
+	if _, err := load(context.Background(), false); err != nil {
+		t.Fatalf("second load: %v", err)
+	}
+	if src.calls != 1 {
+		t.Errorf("source called %d times, want 1: the loader did not read through the cache", src.calls)
+	}
+}
+
+// TestSnapshotterHonorsRefresh is the other half: --refresh has to reach the
+// cache, or a user who asks for fresh data silently gets yesterday's.
+func TestSnapshotterHonorsRefresh(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	src := &stubCatalog{models: testModels()}
+
+	load := Snapshotter(src)
+	if _, err := load(context.Background(), false); err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+	if _, err := load(context.Background(), true); err != nil {
+		t.Fatalf("refresh load: %v", err)
+	}
+	if src.calls != 2 {
+		t.Errorf("source called %d times, want 2: refresh did not bypass the fresh cache", src.calls)
+	}
+}
+
+// TestSnapshotterResolvesCachePathPerCall pins the choice not to resolve it
+// once at construction. XDG_CACHE_HOME changes between calls in every test
+// that isolates the cache, and a path captured at construction would send
+// those writes to whichever directory happened to be set first.
+func TestSnapshotterResolvesCachePathPerCall(t *testing.T) {
+	load := Snapshotter(&stubCatalog{models: testModels()})
+
+	first := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", first)
+	if _, err := load(context.Background(), false); err != nil {
+		t.Fatalf("first load: %v", err)
+	}
+
+	second := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", second)
+	if _, err := load(context.Background(), false); err != nil {
+		t.Fatalf("second load: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(second, "openrouter-launch", "models.json")); err != nil {
+		t.Errorf("the second load did not write under the current XDG_CACHE_HOME: %v", err)
+	}
+}
+
+// TestSnapshotterDefaultsToTheLiveClient covers the nil-source branch without
+// touching the network: a fresh cache short-circuits the fetch, so the client
+// is constructed and never dialled.
+func TestSnapshotterDefaultsToTheLiveClient(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	// Seed a fresh cache through the same code path, then hand off to a
+	// loader with no source of its own.
+	if _, err := Snapshotter(&stubCatalog{models: testModels()})(context.Background(), false); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	snap, err := Snapshotter(nil)(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Snapshotter(nil): %v", err)
+	}
+	if len(snap.Models) != len(testModels()) {
+		t.Errorf("got %d models, want the cached %d", len(snap.Models), len(testModels()))
+	}
+}

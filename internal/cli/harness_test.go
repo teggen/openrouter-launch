@@ -51,7 +51,7 @@ func newHarness(t *testing.T) *harness {
 
 // newHarnessWith builds a harness against catalog, with config and cache
 // isolated to a temp dir.
-func newHarnessWith(t *testing.T, catalog catalog.Catalog) *harness {
+func newHarnessWith(t *testing.T, source catalog.Catalog) *harness {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("XDG_CACHE_HOME", dir)
@@ -62,12 +62,13 @@ func newHarnessWith(t *testing.T, catalog catalog.Catalog) *harness {
 	// a zero-value launch.Plan, and recordSelection would dereference
 	// p.Spec.Name and panic. Cancelling is the safe default outcome.
 	h := &harness{tuiErr: tui.ErrCancelled, reg: openRouterRegistry()}
-	h.svc = &launch.Service{
-		Catalog: catalog,
-		Run: func(c agent.Command) error {
-			h.ran = c
-			return nil
-		},
+	// newService is the production wiring, so these tests exercise the real
+	// cache, the real settings store and the real config dir — only the
+	// catalog source and the process handoff are substituted.
+	h.svc = newService(source)
+	h.svc.Run = func(c agent.Command) error {
+		h.ran = c
+		return nil
 	}
 	return h
 }

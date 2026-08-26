@@ -67,10 +67,12 @@ that matters. `internal/catalog` is provider-neutral and imports nothing else
 in this repo; `internal/openrouter` holds everything vendor-specific — the
 `/models` wire format, the HTTP client, the on-disk cache, the presentation
 helpers — and depends on `catalog` rather than the other way round.
-`internal/agent`'s only in-repo import is `internal/catalog`, enforced by
-`TestAgentDependsOnNothingButTheCatalog`. `internal/launch` still reaches
-`internal/openrouter` and `internal/config` for its cache and settings; those
-two edges become injected fields next.
+`internal/agent` and `internal/launch` import nothing in this repo but each
+other and `internal/catalog`, enforced by
+`TestAgentDependsOnNothingButTheCatalog` and
+`TestLaunchDependsOnNothingButTheAgentsAndTheCatalog` — test imports included,
+because a test reaching for `internal/config` would make the package unmovable
+while compiling and passing.
 
 - **`internal/agent`** — declarative registry of agents. `Launcher` is the
   only required interface and its `Command(Request) (Command, error)` MUST
@@ -91,7 +93,14 @@ two edges become injected fields next.
   place a provider is named. `ExecArgs` dedupes the environment so our env
   always beats the user's stray exports (Landmine 3); on Unix the handoff is
   `syscall.Exec`, so nothing after it runs.
-- **`internal/launch`** — the terminal-free planner. Guards run in a fixed
+- **`internal/launch`** — the terminal-free planner. `Service` is nothing but
+  function fields — `LoadCatalog`, `APIKey`, `RecordSelection`, `StageDir` —
+  because a planner shared by more than one launcher tool cannot know which
+  endpoint to fetch from, where the cache lives, what the settings file looks
+  like, or which directory is "ours" to stage into. `cli.newService` is the
+  one place all four are named, and `TestNewServiceWiresEverySeam` fails if a
+  new one is added and left nil there. `Run`/`RunWait` keep defaults: a
+  process handoff is a syscall, not a policy. Guards run in a fixed
   order (supported → platform → model → installed → …) returning typed
   condition errors (`UnsupportedAgentError`, `NotInstalledError`, …) that
   the CLI and TUI each render their own way. Side effects (recording the

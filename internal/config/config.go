@@ -145,3 +145,35 @@ func ResolveAPIKey(cfg *Config) (string, error) {
 	return "", fmt.Errorf("%w: set %s or run with a saved key (get one at https://openrouter.ai/keys)",
 		ErrNoAPIKey, APIKeyEnvVar)
 }
+
+// APIKey resolves the credential a launch carries, from the environment or
+// the saved settings. It is the adapter internal/launch is wired with: the
+// planner takes a func() (string, error) so it names no settings store of
+// its own, and this is what that func is for this tool.
+//
+// The error identity matters and is deliberately not wrapped: ErrNoAPIKey
+// reaches the TUI through launch.Plan and is what opens the key prompt in
+// place rather than aborting the session.
+func APIKey() (string, error) {
+	cfg, err := Load()
+	if err != nil {
+		return "", err
+	}
+	return ResolveAPIKey(cfg)
+}
+
+// RecordSelection persists the agent and model just launched, for the next
+// run to preselect.
+//
+// The config is re-read here rather than threaded through from the plan: in
+// a TUI a profile may have been added between planning and launching, and
+// that edit must not be clobbered.
+func RecordSelection(agentName, modelID string) error {
+	cfg, err := Load()
+	if err != nil {
+		return err
+	}
+	cfg.LastAgent = agentName
+	cfg.LastModel = modelID
+	return Save(cfg)
+}

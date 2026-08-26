@@ -7,7 +7,10 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/agent"
+	"github.com/teggen/openrouter-launch/internal/catalog"
+	"github.com/teggen/openrouter-launch/internal/config"
 	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/tui"
 	"github.com/teggen/openrouter-launch/internal/version"
 )
@@ -49,9 +52,29 @@ func openRouterRegistry() *agent.Registry {
 	}, agent.Builtins())
 }
 
+// newService builds the launch service this tool runs on.
+//
+// This is the other half of the composition root, and the reason
+// launch.Service is nothing but function fields: the planner is provider- and
+// tool-agnostic, so every fact that is specific to openrouter-launch — which
+// endpoint, which cache, which settings file, which directory is ours to
+// stage into — is named here and nowhere else.
+//
+// source is the catalog to read through; nil means the live public client.
+// Tests pass a fixture, which is what keeps them off the network while still
+// exercising the real cache.
+func newService(source catalog.Catalog) *launch.Service {
+	return &launch.Service{
+		LoadCatalog:     openrouter.Snapshotter(source),
+		APIKey:          config.APIKey,
+		RecordSelection: config.RecordSelection,
+		StageDir:        config.Dir,
+	}
+}
+
 // NewRootCmd builds the command tree against the live OpenRouter API.
 func NewRootCmd() *cobra.Command {
-	return NewRootCmdWith(&launch.Service{})
+	return NewRootCmdWith(newService(nil))
 }
 
 // NewRootCmdWith builds the command tree against the given service, so the
