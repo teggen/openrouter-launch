@@ -1,4 +1,14 @@
-package launch
+// Package filters is the boundary between persisted preferences and a
+// catalog query: it converts config.Filters and config.Sort into the
+// openrouter package's Filter and Sort, and merges those persisted values
+// with whatever flags the user actually set.
+//
+// It lives here rather than in internal/launch because it is not launch
+// logic — nothing in it plans or runs anything — and rather than in
+// internal/config because that package deliberately depends on nothing else
+// in the tree, or in internal/cli because internal/tui uses SortFrom too and
+// must not import cli.
+package filters
 
 import (
 	"github.com/teggen/openrouter-launch/internal/config"

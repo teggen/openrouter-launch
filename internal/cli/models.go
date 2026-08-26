@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/teggen/openrouter-launch/internal/config"
+	"github.com/teggen/openrouter-launch/internal/filters"
 	"github.com/teggen/openrouter-launch/internal/launch"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
@@ -30,20 +31,20 @@ func newModelsCmd(a *app) *cobra.Command {
 			// Persisted filters are the baseline; a flag the user actually
 			// typed wins. Changed() is what makes an explicit --tools=false
 			// distinguishable from an absent --tools.
-			filter := launch.MergeFilters(cfg.Filters, flagFilter, cmd.Flags().Changed)
+			filter := filters.MergeFilters(cfg.Filters, flagFilter, cmd.Flags().Changed)
 			if len(args) == 1 {
 				filter.Search = args[0]
 			}
 
 			// A typo on the command line is fatal, unlike the same value in
-			// the config (launch.SortFrom degrades that one): the user is
+			// the config (filters.SortFrom degrades that one): the user is
 			// standing right here, and printing catalog order would look like
 			// the sort was applied.
 			key, err := openrouter.ParseSortKey(flagSort)
 			if err != nil {
 				return err
 			}
-			sortBy := launch.MergeSort(cfg.Sort,
+			sortBy := filters.MergeSort(cfg.Sort,
 				openrouter.Sort{Key: key, Desc: flagDesc}, cmd.Flags().Changed)
 
 			// --desc alone cannot do anything: SortModels returns an
@@ -56,9 +57,9 @@ func newModelsCmd(a *app) *cobra.Command {
 			// turning descending OFF is not asking for anything a sort
 			// column could satisfy — only a merged Desc of true is a request
 			// this guard needs to reject.
-			if sortBy.Key == openrouter.SortNone && cmd.Flags().Changed(launch.FlagDesc) && sortBy.Desc {
+			if sortBy.Key == openrouter.SortNone && cmd.Flags().Changed(filters.FlagDesc) && sortBy.Desc {
 				return fmt.Errorf("--%s needs a sort column: add --%s (model, context, input, output, tools)",
-					launch.FlagDesc, launch.FlagSort)
+					filters.FlagDesc, filters.FlagSort)
 			}
 
 			snap, err := a.svc.Snapshot(cmd.Context(), a.flags.refresh)
@@ -81,18 +82,18 @@ func newModelsCmd(a *app) *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&flagFilter.ToolsOnly, launch.FlagTools, false,
+	cmd.Flags().BoolVar(&flagFilter.ToolsOnly, filters.FlagTools, false,
 		"only models supporting tool calling (defaults to the saved filter)")
-	cmd.Flags().BoolVar(&flagFilter.FreeOnly, launch.FlagFree, false, "only free models")
+	cmd.Flags().BoolVar(&flagFilter.FreeOnly, filters.FlagFree, false, "only free models")
 	cmd.Flags().StringVar(&flagFilter.Provider, "provider", "",
 		"only models from this provider (e.g. anthropic)")
-	cmd.Flags().IntVar(&flagFilter.MinContext, launch.FlagMinContext, 0,
+	cmd.Flags().IntVar(&flagFilter.MinContext, filters.FlagMinContext, 0,
 		"minimum context window in tokens")
-	cmd.Flags().Float64Var(&flagFilter.MaxPrice, launch.FlagMaxPrice, 0,
+	cmd.Flags().Float64Var(&flagFilter.MaxPrice, filters.FlagMaxPrice, 0,
 		"maximum USD per million output tokens")
-	cmd.Flags().StringVar(&flagSort, launch.FlagSort, "",
+	cmd.Flags().StringVar(&flagSort, filters.FlagSort, "",
 		"sort by column: model, context, input, output, tools")
-	cmd.Flags().BoolVar(&flagDesc, launch.FlagDesc, false,
+	cmd.Flags().BoolVar(&flagDesc, filters.FlagDesc, false,
 		"reverse the sort (largest, priciest, or Z-A first)")
 
 	return cmd

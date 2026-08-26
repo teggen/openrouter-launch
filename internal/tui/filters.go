@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/teggen/openrouter-launch/internal/config"
-	"github.com/teggen/openrouter-launch/internal/launch"
+	"github.com/teggen/openrouter-launch/internal/filters"
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
@@ -39,9 +39,9 @@ func filterStateFrom(f config.Filters, s config.Sort) filterState {
 		freeOnly:   f.FreeOnly,
 		minContext: f.MinContext,
 		maxPrice:   f.MaxPrice,
-		// launch.SortFrom, not a local parse: an unrecognised persisted column
+		// filters.SortFrom, not a local parse: an unrecognised persisted column
 		// must degrade to relevance in exactly one place, shared with the CLI.
-		sort: launch.SortFrom(s),
+		sort: filters.SortFrom(s),
 	}
 }
 
