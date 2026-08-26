@@ -66,10 +66,17 @@ main.go → internal/cli (cobra) → internal/launch (planner) → internal/agen
   capability interfaces detected by type assertion — the whole set is
   `Installable`, `Installer`, `Compatible`, `PlatformSupported`,
   `ConfigWriter`, `CredentialShadowCheck`, and `Staged`
-  (`internal/agent/agent.go`). Unsupported agents
-  stay registered with a stub launcher and a reason — `Spec.Launcher` nil
-  panics at init. `ExecArgs` dedupes the environment so our env always
-  beats the user's stray exports (Landmine 3); on Unix the handoff is
+  (`internal/agent/agent.go`). The registry is a **value**, not package
+  state: `Builtins()` returns provider-independent `Definition`s and
+  `NewRegistry(Binding, []Definition)` resolves them against one `Provider`
+  + `Host`, so a second tool binds the same eleven recipes to its own
+  provider. A definition whose `New` returns `ErrUnsupportedProvider` stays
+  registered with a placeholder launcher and its reason, which is how the
+  three desktop apps are refused; every other construction error fails the
+  whole registry. `MustRegistry` is the composition-root wrapper that turns
+  that into a startup panic (`internal/cli/root.go`), and it is the only
+  place a provider is named. `ExecArgs` dedupes the environment so our env
+  always beats the user's stray exports (Landmine 3); on Unix the handoff is
   `syscall.Exec`, so nothing after it runs.
 - **`internal/launch`** — the terminal-free planner. Guards run in a fixed
   order (supported → platform → model → installed → …) returning typed

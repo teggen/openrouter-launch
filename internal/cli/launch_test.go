@@ -12,27 +12,10 @@ import (
 	"github.com/teggen/openrouter-launch/internal/openrouter"
 )
 
-// stubClaudePath makes the registry's Claude launcher resolve without a real
-// binary on this machine.
-func stubClaudePath(t *testing.T) {
-	t.Helper()
-	spec, err := agent.Lookup("claude")
-	if err != nil {
-		t.Fatalf("Lookup: %v", err)
-	}
-	claude, ok := spec.Launcher.(*agent.Claude)
-	if !ok {
-		t.Fatalf("claude launcher has unexpected type %T", spec.Launcher)
-	}
-	prev := claude.LookPath
-	claude.LookPath = func(string) (string, error) { return "/usr/local/bin/claude", nil }
-	t.Cleanup(func() { claude.LookPath = prev })
-}
-
 func setupLaunch(t *testing.T) *harness {
 	t.Helper()
 	h := newHarness(t)
-	stubClaudePath(t)
+	h.stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	return h
 }
@@ -80,10 +63,7 @@ func TestLaunchPassesExtraArgsAfterDoubleDash(t *testing.T) {
 func TestLaunchUnsupportedAgentRefusesWithRegistryReason(t *testing.T) {
 	h := newHarness(t)
 
-	spec, err := agent.Lookup("chatgpt")
-	if err != nil {
-		t.Fatalf("Lookup: %v", err)
-	}
+	spec := h.mustLookup(t, "chatgpt")
 
 	_, execErr := h.exec("chatgpt", "-m", "some/model")
 	if execErr == nil {
@@ -282,7 +262,7 @@ func (e fakeExitCoder) ExitCode() int { return e.code }
 
 func TestLaunchAgentExitErrorSuppressesCobraErrorLine(t *testing.T) {
 	h := newHarness(t)
-	stubClaudePath(t)
+	h.stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
 	h.svc.Run = func(agent.Command) error {
 		return fmt.Errorf("run claude: %w", fakeExitCoder{code: 3})
@@ -319,7 +299,7 @@ func TestLaunchOtherErrorsStillPrintCobraErrorLine(t *testing.T) {
 
 func TestLaunchMissingAPIKeyFails(t *testing.T) {
 	h := newHarness(t)
-	stubClaudePath(t)
+	h.stubClaudePath(t)
 	t.Setenv("OPENROUTER_API_KEY", "")
 
 	_, err := h.exec("claude", "-m", "anthropic/claude-opus-4.6")
@@ -351,7 +331,7 @@ func TestLaunchStaleCatalogWarningSurvivesUnknownModelError(t *testing.T) {
 	h := newHarnessWith(t, erroringCatalog{})
 	seedStaleCache(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-	stubClaudePath(t)
+	h.stubClaudePath(t)
 
 	var stderr bytes.Buffer
 	root := h.root(&stderr)
@@ -380,7 +360,7 @@ func TestLaunchRendersStaleThenCompatibilityThenPrompt(t *testing.T) {
 	h := newHarnessWith(t, erroringCatalog{}) // forces the stale-cache fallback
 	seedStaleCache(t)
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-test")
-	stubClaudePath(t)
+	h.stubClaudePath(t)
 
 	var stderr bytes.Buffer
 	root := h.root(&stderr)

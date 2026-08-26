@@ -115,7 +115,7 @@ func TestAnApprovedPlanIsHandedOff(t *testing.T) {
 	h := newHarness(t)
 	h.tuiErr = nil
 	h.tuiPlan = launch.Plan{
-		Spec:    mustLookup(t, "claude"),
+		Spec:    h.mustLookup(t, "claude"),
 		Model:   openrouter.Model{ID: "anthropic/claude-opus-4.6"},
 		Command: agent.Command{Path: "/usr/bin/claude", Args: []string{"claude"}},
 	}
@@ -134,7 +134,7 @@ func TestPlanWarningsReachStderrAfterTheTUI(t *testing.T) {
 	h := newHarness(t)
 	h.tuiErr = nil
 	h.tuiPlan = launch.Plan{
-		Spec:    mustLookup(t, "claude"),
+		Spec:    h.mustLookup(t, "claude"),
 		Model:   openrouter.Model{ID: "anthropic/claude-opus-4.6"},
 		Command: agent.Command{Path: "/usr/bin/claude"},
 		Warnings: []launch.Warning{
@@ -149,13 +149,4 @@ func TestPlanWarningsReachStderrAfterTheTUI(t *testing.T) {
 	if !strings.Contains(out, "using cached data") {
 		t.Errorf("output = %q, does not carry the plan's warning", out)
 	}
-}
-
-func mustLookup(t *testing.T, name string) *agent.Spec {
-	t.Helper()
-	spec, err := agent.Lookup(name)
-	if err != nil {
-		t.Fatalf("agent.Lookup(%q): %v", name, err)
-	}
-	return spec
 }

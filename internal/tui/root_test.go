@@ -352,3 +352,47 @@ func TestRootViewStaysWithinTheTerminalWidth(t *testing.T) {
 		}
 	}
 }
+
+// TestRootResolvesProfileAgentsThroughTheInjectedLookup covers a bug this
+// screen carried until the registry became a value: buildRootRows called
+// agent.Lookup on the package-level registry while the very next line
+// consulted the injected Installed probe. A test that supplied its own agents
+// therefore had its profile rows resolved against whatever was really
+// registered — and since "claude" is really registered, a profile naming it
+// rendered an install status instead of the unknown-agent cell.
+//
+// The fixture names an agent the injected lookup does not know, which is the
+// only shape that can tell the two registries apart.
+func TestRootResolvesProfileAgentsThroughTheInjectedLookup(t *testing.T) {
+	m := newRootModel(rootInput{
+		Profiles:  []config.Profile{{Name: "p1", Agent: "claude", Model: "m"}},
+		Agents:    []*agent.Spec{stubSpec("codex")},
+		Installed: allInstalled,
+		Lookup: func(string) (*agent.Spec, error) {
+			return nil, agent.ErrUnknownAgent
+		},
+	})
+	if got := m.View(); !strings.Contains(got, "unknown agent") {
+		t.Errorf("View = %q, want the profile row to report an unknown agent", got)
+	}
+}
+
+// TestRootRendersProfileStatusFromTheInjectedLookup is the positive half: a
+// lookup that DOES resolve produces a real status, so the test above is
+// failing on the lookup rather than on the row never getting a status at all.
+func TestRootRendersProfileStatusFromTheInjectedLookup(t *testing.T) {
+	spec := stubSpec("claude")
+	m := newRootModel(rootInput{
+		Profiles:  []config.Profile{{Name: "p1", Agent: "claude", Model: "m"}},
+		Agents:    []*agent.Spec{spec},
+		Installed: func(*agent.Spec) bool { return false },
+		Lookup:    func(string) (*agent.Spec, error) { return spec, nil },
+	})
+	got := m.View()
+	if strings.Contains(got, "unknown agent") {
+		t.Errorf("View = %q, want a resolved profile row", got)
+	}
+	if !strings.Contains(got, "not installed") {
+		t.Errorf("View = %q, want the injected Installed probe's answer", got)
+	}
+}

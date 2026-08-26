@@ -190,24 +190,20 @@ func (s *script) screens() screens {
 	}
 }
 
-// stubOptions wires the injection points to stubs so nothing consults the
-// real registry, PATH, or the user's home directory.
+// stubOptions wires the session to a registry of stub specs, so nothing
+// consults the real registry, PATH, or the user's home directory.
+//
+// agent.NewRegistryFromSpecs is the seam that makes this possible: a real
+// registry needs a Provider and a Host, and its launchers would be the actual
+// agents. It panics rather than taking a *testing.T because the only way it
+// fails is a collision between fixtures in this file, which is a bug in the
+// test rather than a condition under test.
 func stubOptions(svc *launch.Service, specs ...*agent.Spec) Options {
-	byName := map[string]*agent.Spec{}
-	for _, sp := range specs {
-		byName[sp.Name] = sp
+	reg, err := agent.NewRegistryFromSpecs(specs)
+	if err != nil {
+		panic("stubOptions: " + err.Error())
 	}
-	return Options{
-		Service:   svc,
-		Agents:    specs,
-		Installed: func(*agent.Spec) bool { return true },
-		Lookup: func(name string) (*agent.Spec, error) {
-			if sp, ok := byName[name]; ok {
-				return sp, nil
-			}
-			return nil, agent.ErrUnknownAgent
-		},
-	}
+	return Options{Service: svc, Registry: reg}
 }
 
 func loadTestConfig(t *testing.T) *config.Config {
@@ -1436,5 +1432,18 @@ func TestRunPersistsTheSortWithUnchangedFilters(t *testing.T) {
 	}
 	if got := loadTestConfig(t).Sort; got != (config.Sort{Column: "output", Desc: true}) {
 		t.Errorf("saved sort = %+v, want the picker's state", got)
+	}
+}
+
+// TestRunRequiresARegistry pins the second half of Options' required set. The
+// registry used to default to the package-level one, which is exactly what
+// made it possible for a test to inject agents and still have a screen
+// resolve against the real registry; there is no default to fall back to now,
+// so the missing field has to be reported rather than silently substituted.
+func TestRunRequiresARegistry(t *testing.T) {
+	svc, _ := newTestService(t)
+	sc := (&script{t: t}).screens()
+	if _, err := run(context.Background(), Options{Service: svc}, sc); err == nil {
+		t.Error("run with a nil Registry returned no error")
 	}
 }

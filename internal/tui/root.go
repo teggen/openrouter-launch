@@ -17,9 +17,16 @@ type rootInput struct {
 	Profiles []config.Profile
 	Agents   []*agent.Spec
 	// Installed reports whether an agent's binary is present. It is injected
-	// rather than calling agent.Installed directly so tests never depend on
+	// rather than calling the registry directly so tests never depend on
 	// what is installed on the machine running them.
 	Installed func(*agent.Spec) bool
+	// Lookup resolves the agent a profile row names. It is injected for the
+	// same reason Installed is, and it used to be missing: this screen called
+	// agent.Lookup on the package-level registry while the very next line
+	// consulted the injected Installed, so a test that supplied its own
+	// agents still resolved profile rows against whatever the real registry
+	// held. nil resolves nothing, leaving profile rows without a status.
+	Lookup func(string) (*agent.Spec, error)
 	// LastAgent preselects a row.
 	LastAgent string
 }
@@ -92,8 +99,10 @@ func buildRootRows(in rootInput) []rootRow {
 			// only from a hand-edited config, since profile add validates
 			// the name, but the status column is the only place that
 			// failure surfaces before launch time.
-			if spec, err := agent.Lookup(p.Agent); err == nil {
-				row.spec, row.installed = spec, installed(spec)
+			if in.Lookup != nil {
+				if spec, err := in.Lookup(p.Agent); err == nil {
+					row.spec, row.installed = spec, installed(spec)
+				}
 			}
 			rows = append(rows, row)
 		}

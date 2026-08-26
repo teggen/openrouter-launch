@@ -35,33 +35,21 @@ func TestAgentsCommandListsClaude(t *testing.T) {
 }
 
 func TestAgentsCommandShowsInstalledWhenBinaryFound(t *testing.T) {
-	spec, err := agent.Lookup("claude")
-	if err != nil {
-		t.Fatalf("lookup claude: %v", err)
-	}
-	claude := spec.Launcher.(*agent.Claude)
-	prev := claude.LookPath
-	claude.LookPath = func(string) (string, error) { return "/usr/local/bin/claude", nil }
-	t.Cleanup(func() { claude.LookPath = prev })
-
 	h := newHarness(t)
+	h.stubClaudePath(t)
+
 	if got := claudeStatusField(t, h.run(t, "agents")); got != "✓ installed" {
 		t.Errorf("status = %q, want %q", got, "✓ installed")
 	}
 }
 
 func TestAgentsCommandShowsNotInstalledWhenBinaryNotFound(t *testing.T) {
-	spec, err := agent.Lookup("claude")
-	if err != nil {
-		t.Fatalf("lookup claude: %v", err)
-	}
-	claude := spec.Launcher.(*agent.Claude)
-	prev := claude.LookPath
-	claude.LookPath = func(string) (string, error) { return "", agent.ErrUnknownAgent }
-	t.Cleanup(func() { claude.LookPath = prev })
 	testHome(t) // Landmine 8
 
 	h := newHarness(t)
+	claude := h.mustLookup(t, "claude").Launcher.(*agent.Claude)
+	claude.LookPath = func(string) (string, error) { return "", agent.ErrUnknownAgent }
+
 	if got := claudeStatusField(t, h.run(t, "agents")); got != "✗ not installed" {
 		t.Errorf("status = %q, want %q", got, "✗ not installed")
 	}

@@ -15,7 +15,7 @@ import (
 
 // newLaunchCmds builds one subcommand per registered agent.
 func newLaunchCmds(a *app) []*cobra.Command {
-	specs := agent.List()
+	specs := a.reg.List()
 	cmds := make([]*cobra.Command, 0, len(specs))
 
 	for _, spec := range specs {
@@ -96,6 +96,7 @@ func runTUI(cmd *cobra.Command, a *app, spec *agent.Spec, extraArgs []string) er
 		ExtraArgs: extraArgs,
 		Refresh:   a.flags.refresh,
 		AssumeYes: a.flags.yes,
+		Registry:  a.reg,
 	})
 	if errors.Is(err, tui.ErrCancelled) {
 		// Backing out of the picker is not a failure.

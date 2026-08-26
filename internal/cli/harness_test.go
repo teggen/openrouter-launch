@@ -24,6 +24,11 @@ import (
 // used to carry for this purpose.
 type harness struct {
 	svc *launch.Service
+	// reg is the registry the command tree is built from. It is a field
+	// because a test that stubs a launcher's LookPath must mutate the SAME
+	// *Spec the tree resolves — registries are values now, so a second one
+	// built alongside would silently leave the stub unused.
+	reg *agent.Registry
 	// ran is the command the handoff would have executed.
 	ran agent.Command
 	// tuiPlan and tuiErr are what the injected TUI returns; tuiOpts records
@@ -55,7 +60,7 @@ func newHarnessWith(t *testing.T, catalog openrouter.Catalog) *harness {
 	// without configuring tuiPlan would otherwise have handoff call Launch on
 	// a zero-value launch.Plan, and recordSelection would dereference
 	// p.Spec.Name and panic. Cancelling is the safe default outcome.
-	h := &harness{tuiErr: tui.ErrCancelled}
+	h := &harness{tuiErr: tui.ErrCancelled, reg: openRouterRegistry()}
 	h.svc = &launch.Service{
 		Catalog: catalog,
 		Run: func(c agent.Command) error {
@@ -93,7 +98,7 @@ func seedStaleCache(t *testing.T) {
 
 // root returns a fresh command tree with both streams writing into out.
 func (h *harness) root(out *bytes.Buffer) *cobra.Command {
-	root := newRootCmd(h.svc, func(_ context.Context, o tui.Options) (launch.Plan, error) {
+	root := newRootCmd(h.svc, h.reg, func(_ context.Context, o tui.Options) (launch.Plan, error) {
 		h.tuiCalls++
 		h.tuiOpts = append(h.tuiOpts, o)
 		return h.tuiPlan, h.tuiErr
@@ -225,4 +230,29 @@ func wantColumns(t *testing.T, out string, want ...string) {
 			t.Fatalf("header = %q, want %q", got, want)
 		}
 	}
+}
+
+// mustLookup resolves a name in the harness's own registry.
+func (h *harness) mustLookup(t *testing.T, name string) *agent.Spec {
+	t.Helper()
+	spec, err := h.reg.Lookup(name)
+	if err != nil {
+		t.Fatalf("Lookup(%q): %v", name, err)
+	}
+	return spec
+}
+
+// stubClaudePath makes the harness's Claude launcher resolve without a real
+// binary on this machine.
+//
+// It needs no t.Cleanup to put the previous LookPath back: each harness holds
+// its own registry, so the launcher it mutates is not shared with any other
+// test. Restoring was mandatory while the registry was a package global.
+func (h *harness) stubClaudePath(t *testing.T) {
+	t.Helper()
+	claude, ok := h.mustLookup(t, "claude").Launcher.(*agent.Claude)
+	if !ok {
+		t.Fatalf("claude launcher has unexpected type")
+	}
+	claude.LookPath = func(string) (string, error) { return "/usr/local/bin/claude", nil }
 }

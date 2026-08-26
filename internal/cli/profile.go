@@ -18,8 +18,8 @@ func newProfileCmd(a *app) *cobra.Command {
 		Short: "Manage saved agent + model profiles",
 	}
 	cmd.AddCommand(
-		newProfileListCmd(),
-		newProfileAddCmd(),
+		newProfileListCmd(a),
+		newProfileAddCmd(a),
 		newProfileLaunchCmd(a),
 		newProfileRemoveCmd(),
 		newProfileRenameCmd(),
@@ -27,7 +27,7 @@ func newProfileCmd(a *app) *cobra.Command {
 	return cmd
 }
 
-func newProfileListCmd() *cobra.Command {
+func newProfileListCmd(a *app) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
 		Short: "List saved profiles",
@@ -43,7 +43,7 @@ func newProfileListCmd() *cobra.Command {
 				return nil
 			}
 			_, err = fmt.Fprintln(out,
-				ui.NewTheme(out).Render(profilesTable(cfg.Profiles, agent.Lookup, agent.Installed)))
+				ui.NewTheme(out).Render(profilesTable(cfg.Profiles, a.reg.Lookup, a.reg.Installed)))
 			return err
 		},
 	}
@@ -96,7 +96,7 @@ func profilesTable(
 	}
 }
 
-func newProfileAddCmd() *cobra.Command {
+func newProfileAddCmd(a *app) *cobra.Command {
 	var name, agentName, model string
 
 	cmd := &cobra.Command{
@@ -105,7 +105,7 @@ func newProfileAddCmd() *cobra.Command {
 		Long:  "Save a named agent + model combination. Arguments after -- are stored and passed to the agent on launch.",
 		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			spec, err := agent.Lookup(agentName)
+			spec, err := a.reg.Lookup(agentName)
 			if err != nil {
 				return err
 			}
@@ -169,7 +169,7 @@ func newProfileLaunchCmd(a *app) *cobra.Command {
 			if !ok {
 				return fmt.Errorf("%w: %s", config.ErrProfileNotFound, args[0])
 			}
-			spec, err := agent.Lookup(profile.Agent)
+			spec, err := a.reg.Lookup(profile.Agent)
 			if err != nil {
 				return err
 			}

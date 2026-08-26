@@ -32,33 +32,15 @@ type Options struct {
 	// the caller still renders those.
 	AssumeYes bool
 
-	// The three fields below are injection points defaulting to the real
-	// registry. They exist so tests never consult PATH or the user's home
-	// directory — agent.Claude's install check does both.
-	Agents    []*agent.Spec
-	Installed func(*agent.Spec) bool
-	Lookup    func(string) (*agent.Spec, error)
-}
-
-func (o Options) agents() []*agent.Spec {
-	if o.Agents != nil {
-		return o.Agents
-	}
-	return agent.List()
-}
-
-func (o Options) installed() func(*agent.Spec) bool {
-	if o.Installed != nil {
-		return o.Installed
-	}
-	return agent.Installed
-}
-
-func (o Options) lookup(name string) (*agent.Spec, error) {
-	if o.Lookup != nil {
-		return o.Lookup(name)
-	}
-	return agent.Lookup(name)
+	// Registry is the set of agents this session offers, and the source of
+	// every List/Installed/Lookup answer it needs. It is required and
+	// injected rather than defaulted: this package has no provider to bind a
+	// registry to, and taking it as one value is also what keeps tests off
+	// PATH and the user's home directory — agent.Claude's install check
+	// reads both. It replaced three separately overridable function fields,
+	// which could disagree about which registry they were describing; one of
+	// them was in fact bypassed entirely (see rootInput.Lookup).
+	Registry *agent.Registry
 }
 
 // screens is the set of interactive steps, as functions rather than direct
@@ -134,6 +116,9 @@ func run(ctx context.Context, opts Options, sc screens) (launch.Plan, error) {
 	if opts.Service == nil {
 		return launch.Plan{}, errors.New("tui: Options.Service is required")
 	}
+	if opts.Registry == nil {
+		return launch.Plan{}, errors.New("tui: Options.Registry is required")
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		return launch.Plan{}, err
@@ -182,8 +167,9 @@ func run(ctx context.Context, opts Options, sc screens) (launch.Plan, error) {
 func (s *session) stepRoot() (state, error) {
 	choice, err := s.sc.root(rootInput{
 		Profiles:  s.cfg.Profiles,
-		Agents:    s.opts.agents(),
-		Installed: s.opts.installed(),
+		Agents:    s.opts.Registry.List(),
+		Installed: s.opts.Registry.Installed,
+		Lookup:    s.opts.Registry.Lookup,
 		LastAgent: s.cfg.LastAgent,
 	})
 	if err != nil {
@@ -192,7 +178,7 @@ func (s *session) stepRoot() (state, error) {
 
 	switch choice.Kind {
 	case choiceProfile:
-		spec, lerr := s.opts.lookup(choice.Profile.Agent)
+		spec, lerr := s.opts.Registry.Lookup(choice.Profile.Agent)
 		if lerr != nil {
 			// A profile is a stored reference and can rot: its agent may have
 			// been renamed or removed since it was saved.

@@ -9,7 +9,7 @@ import (
 	"github.com/teggen/openrouter-launch/internal/ui"
 )
 
-func newAgentsCmd() *cobra.Command {
+func newAgentsCmd(a *app) *cobra.Command {
 	var all bool
 
 	cmd := &cobra.Command{
@@ -19,7 +19,7 @@ func newAgentsCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			out := cmd.OutOrStdout()
 			_, err := fmt.Fprintln(out,
-				ui.NewTheme(out).Render(agentsTable(agent.List(), agent.Installed, all)))
+				ui.NewTheme(out).Render(agentsTable(a.reg.List(), a.reg.Installed, all)))
 			return err
 		},
 	}
@@ -31,12 +31,12 @@ func newAgentsCmd() *cobra.Command {
 
 // agentsTable builds the listing.
 //
-// It takes the specs and an installed-ness probe rather than reaching for
-// agent.List/agent.Installed itself, so a test can render an adversarial
-// spec — a 200-character description no real agent has — and watch the
-// width cap do its job. Without that seam TestAgentsOutputStaysNarrow can
-// only ever measure whatever the registry happens to contain, which sits
-// comfortably under the cap and would leave the test unable to fail.
+// It takes the specs and an installed-ness probe rather than reaching for the
+// registry itself, so a test can render an adversarial spec — a 200-character
+// description no real agent has — and watch the width cap do its job. Without
+// that seam TestAgentsOutputStaysNarrow can only ever measure whatever the
+// registry happens to contain, which sits comfortably under the cap and would
+// leave the test unable to fail.
 func agentsTable(specs []*agent.Spec, installed func(*agent.Spec) bool, all bool) ui.Table {
 	// The last column carries the reason for an unsupported agent and the
 	// description for everyone else, rather than the two living in separate
