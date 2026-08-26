@@ -13,3 +13,9 @@ openrouter-launch
 # committed `replace` directive causes, green locally and broken in CI.
 /go.work
 /go.work.sum
+
+# Model-written code reviews are untracked scratch — the tracked record is the
+# triage under docs/superpowers/specs/, which says which claims survived
+# verification and why. One of these was committed by accident during the
+# agentlaunch extraction (a66be4d) and removed again; this stops the next one.
+/review-*.md
