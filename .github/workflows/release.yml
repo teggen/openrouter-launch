@@ -20,7 +20,7 @@ jobs:
       # setup-go can build a published release binary with whatever stale
       # 1.25.x the runner image had cached. See the full rationale on the
       # same key in ci.yml's `quality` job.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
           check-latest: true
@@ -67,7 +67,7 @@ jobs:
           git fetch --no-tags --quiet origin main || true
           git fetch --no-tags --quiet origin develop || true
           .github/scripts/check-tag-branch.sh "${GITHUB_REF_NAME}"
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
           check-latest: true
